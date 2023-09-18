@@ -1,0 +1,56 @@
+<RCC>
+    <qresource prefix="/icon"/>
+    <qresource prefix="/">
+        <file>icon/up.png</file>
+        <file>icon/down.png</file>
+        <file>icon/delete.png</file>
+        <file>icon/send.png</file>
+        <file>icon/config.png</file>
+        <file>icon/stop.png</file>
+        <file>icon/empty.png</file>
+        <file>icon/generate.png</file>
+        <file>icon/addList.png</file>
+        <file>icon/save.png</file>
+        <file>icon/load.png</file>
+        <file>icon/hint.png</file>
+        <file>icon/connect.png</file>
+        <file>icon/disconnect.png</file>
+        <file>icon/expand.png</file>
+        <file>icon/zoom.png</file>
+        <file>icon/file.png</file>
+        <file>icon/manual.png</file>
+        <file>icon/table.png</file>
+        <file>icon/login.gif</file>
+        <file>icon/testProcess.gif</file>
+        <file>icon/close.png</file>
+        <file>icon/clear.png</file>
+        <file>icon/download.png</file>
+        <file>icon/config1.png</file>
+        <file>icon/reset.png</file>
+        <file>icon/down_transfer.png</file>
+        <file>icon/up_transfer.png</file>
+        <file>icon/communication.png</file>
+        <file>icon/logout.png</file>
+        <file>icon/device.png</file>
+        <file>icon/MD5.png</file>
+        <file>icon/create.png</file>
+        <file>icon/testing.png</file>
+        <file>icon/author.png</file>
+        <file>icon/date.png</file>
+        <file>icon/version.png</file>
+        <file>icon/move.png</file>
+        <file>icon/left.png</file>
+        <file>icon/right.png</file>
+        <file>icon/switch.png</file>
+        <file>icon/log.png</file>
+        <file>icon/duplicate.png</file>
+        <file>icon/file_select_bk.png</file>
+        <file>icon/dir.png</file>
+        <file>icon/login1.gif</file>
+        <file>icon/copy.png</file>
+        <file>icon/encrypt.png</file>
+        <file>icon/login.png</file>
+        <file>icon/licence.png</file>
+        <file>icon/upgrade.png</file>
+    </qresource>
+</RCC>
