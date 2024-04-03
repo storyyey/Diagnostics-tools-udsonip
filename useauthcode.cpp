@@ -62,7 +62,7 @@ bool UseAuthCode::saveLicenseKey(QString filename, QString lickey)
 void UseAuthCode::on_pushButton_clicked()
 {
     QAESEncryption encryption(QAESEncryption::AES_128, QAESEncryption::ECB, QAESEncryption::ZERO);
-    QByteArray hashKey = QCryptographicHash::hash(QString(ui->lineEdit->text()).toUtf8(), QCryptographicHash::Md5);
+    QByteArray hashKey = QCryptographicHash::hash(QString(ui->lineEdit->text() + "storyyey@github").toUtf8(), QCryptographicHash::Md5);
 
     QJsonObject authinfo = QJsonObject {
         {"ST", QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")},

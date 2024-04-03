@@ -17,12 +17,14 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QJsonDocument>
+#ifdef __HAVE_CHARTS__
 #include <QBarSet>
 #include <QChart>
 #include <QChartView>
 #include <QHorizontalPercentBarSeries>
 #include <QValueAxis>
 #include <QBarCategoryAxis>
+#endif /* __HAVE_CHARTS__ */
 #include <QProgressBar>
 #include <QDir>
 #include <QFile>
@@ -43,12 +45,17 @@
 #include <QCryptographicHash>
 #include <QApplication>
 #include <QClipboard>
+#include <QTextCodec>
+#include <QTabWidget>
+#include <QSplitter>
 #include "fileselect.h"
 #include "can.h"
 #include "doipclient.h"
 #include "tabletoxlsx.h"
 
+#ifdef __HAVE_CHARTS__
 QT_CHARTS_USE_NAMESPACE
+#endif /* __HAVE_CHARTS__ */
 
 void realTimeLog(QString log);
 
@@ -68,7 +75,6 @@ public:
     QString expectResponse;
     QString expectResponseRule;
     QString resultDesc;
-
     quint8 modeOfOperation = 0;
     quint16 filePathAndNameLength = 0;
     QString filePathAndName;
@@ -90,12 +96,21 @@ class UDS : public QObject
     Q_OBJECT
 public:
     explicit UDS(QObject *parent = nullptr);
-    void backupCacheInit();
-    QWidget *UDSMainWidget();
+    QWidget *mainWidget();
     QWidget *userSelectWidget();
-    QWidget *UDSChannelSelectWidget();
-    QWidget *UDSOperationConfigWidget();
-    bool saveServiceSet(QString filename);
+    QWidget *channelSelectWidget();
+    QWidget *operationConfigWidget();
+    QWidget *uiConfigWidget();
+    QWidget *serviceGeneralConfigWidget();
+    QWidget *serviceConfigWidget();
+    QWidget *requestFileTransferWidget();
+    QWidget *securityAccessWidget();
+    QWidget *serviceProjectListWidget();
+
+    void readUserActionCache();
+    void writeUserActionCache();
+    void writeServiceSetCache();
+    bool saveCurrServiceSet(QString filename);
     bool addServiceItem(serviceItem &data);
     bool setServiceItemOperationControl(int row, serviceItem &data);
     bool modifyServiceItem(int row, serviceItem &data);
@@ -105,9 +120,6 @@ public:
     QString serviceItemDataEncodeUnformat(serviceItem &data);
     QByteArray getRequestFileTransferMessage(serviceItem &data);
     serviceItem serviceItemDataDecode(QString &config);
-    QWidget *serviceConfigWidget();
-    QWidget *requestFileTransferWidget();
-    QWidget *SecurityAccessWidget();
     QByteArray serviceRequestEncode();
     QString widgetConfigToString();
     bool stringToWidgetConfig(QString &config);
@@ -119,8 +131,7 @@ public:
     void serviceListReset(QStandardItemModel *model);
     void visualizationTestResult();
     bool abortServiceTask();
-    QWidget *serviceProjectListWidget();
-    bool loadServiceSet(QString filename);
+    bool readServiceSet(QString filename);
     bool serviceSetActive();
     void promptForAction(QString text);
     bool serviceResponseHandle(QByteArray response, serviceItem &data);
@@ -243,11 +254,17 @@ public:
 signals:
 
 private:
+    DiagPcap diagPcap;
+
+    QCheckBox *failureAbortCheckBox = nullptr; /* 失败立即中止测试 */
+    QCheckBox *IPDiagPcapCheckBox = nullptr; /* 自动捕获保存DOIP诊断报文 */
+
     QCheckBox *highPerformanceCheckBox = nullptr;
     bool highPerformanceEnable = false; /* 高性能模式使能将减少UI动画交互 */
     CAN *can = nullptr;
     int fontHeight = 17;
 
+    QTabWidget *udstabWidget = nullptr;
     QComboBox *projectNameListComBox = nullptr;
 
     TableToXlsx tableToXlsx;
@@ -349,6 +366,7 @@ private:
 
     QComboBox *doipServerListBox = nullptr;
 
+    QTimer *serviceConfigWidgetRefreshTimer = nullptr;
     QLineEdit *cycleNumberEdit = nullptr;
     QComboBox *serviceListBox = nullptr;
     QComboBox *serviceSubListBox = nullptr;
@@ -386,7 +404,7 @@ private:
     QCheckBox *fixCycle3eCheckBox = nullptr;
 
     QWidget *fileTransferWidget = nullptr;
-    QWidget *securityAccessWidget = nullptr;
+    QWidget *securityWidget = nullptr;
 
     QPushButton *sendListBtn = nullptr;
     QPushButton *sendAbortListBtn = nullptr;
@@ -402,10 +420,12 @@ private:
     QWidget *progressWidget = nullptr;
     QHBoxLayout *progressLayout = nullptr;
     QProgressBar *serviceTestProgress = nullptr;
+#ifdef __HAVE_CHARTS__
     QBarCategoryAxis *axisY = nullptr;
     QValueAxis *axisX = nullptr;
     QChart *chart = nullptr;
     QChartView *chartView = nullptr;
+#endif /* __HAVE_CHARTS__ */
     QLabel *upTransferSpeedLable = nullptr;
     QLabel *downTransferSpeedLable = nullptr;
     QMap<UDS::serviceItemState, int> serviceItemStatis;
@@ -483,13 +503,12 @@ private:
                                 background-color: #1E90FF;\
                             }";
     QString comboxCommonStyle;
-
+    int P2ServerMax;
+    int P2EServerMax;
 public slots:
     void doipServerListChangeSlot(QMap<QString, DoipClientConnect *> &map);
     void diagnosisResponseSlot(DoipClientConnect *doipConn, DoipClientConnect::sendDiagFinishState state, QByteArray &response);
     void diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDiagFinishState state, QByteArray &response);
-    void serviceSetBackupCache();
-    void operationCache();
     void canResponseHandler(QString name, int, QByteArray response);
     void contextMenuSlot(QPoint pos);
     void projectSetContextMenuSlot(QPoint pos);

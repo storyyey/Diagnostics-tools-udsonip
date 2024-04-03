@@ -4,7 +4,7 @@
 #include <QProcess>
 #include <QFileDialog>
 
-static QString devuuid = "";
+static QString devuuid = "E970E000-6464-2220-0415-155725000000";
 static Login::UserType usertype = Login::NotLog;
 
 QString _getComputerUUID()
@@ -96,11 +96,11 @@ Login::Login(QWidget *parent) :
         }
     }
 
-    QString key(devuuid);
+    QString key(devuuid + "storyyey@github");
     QByteArray hashKey = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5);
     ui->keyLineEdit->setText(devuuid);
     ui->infoLabel->setOpenExternalLinks(true);
-    ui->infoLabel->setText(QString("<a style='color: blue;' href=''><u></u></a>" + QString(QString(" Version:") + SOFT_VERSION)));
+    ui->infoLabel->setText(QString("<a style='color: blue;' href='https://github.com/storyyey/Diagnostics-tools'><u>源码路径</u></a>" + QString(QString(" Version:") + SOFT_VERSION)));
     ui->loginPushButton->setIcon(QIcon(":/icon/login.png"));
     ui->loginHintLabel->setText(licenceUseHint);
     ui->licencePushButton->setStyleSheet(pushButtonStyle);
@@ -118,10 +118,11 @@ Login::Login(QWidget *parent) :
     autoLoginTimer->start();
     connect(autoLoginTimer, &QTimer::timeout, this, [this]{
         /* 自动使用授权码登录 */
-        ui->useLicCheckBox->setCheckState(Qt::Checked);
-        autoLogin();
-        if (Login::loginUserType() != Login::NotLog) {
-            autoLoginTimer->stop();
+        if (Qt::Checked == ui->useLicCheckBox->checkState()) {
+            autoLogin();
+            if (Login::loginUserType() != Login::NotLog) {
+                autoLoginTimer->stop();
+            }
         }
     });
 }
@@ -138,12 +139,6 @@ void Login::setMainWindow(QMainWindow *windown)
 
 void Login::autoLogin()
 {
-    if (windown) {
-        windown->show();
-        this->hide();
-        return ;
-    }
-
     QSettings operationSettings("login.ini", QSettings::IniFormat);
     operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));
 
@@ -166,7 +161,7 @@ void Login::loginCheck(bool record)
 bool Login::loginCheck(QString username, QString password, bool record)
 {
     qDebug() << "username:" << username << "password:" << password << "record:" << record;
-    QString key(devuuid);
+    QString key(devuuid + "storyyey@github");
     QAESEncryption encryption(QAESEncryption::AES_128, QAESEncryption::ECB, QAESEncryption::ZERO);
     QByteArray hashKey = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5);
 
@@ -235,10 +230,10 @@ bool Login::loginCheck(QString username, QString password, bool record)
         }
 
         QString enNormalUser = QString::fromLatin1(encryption.encode(QString("root").toUtf8(), hashKey).toBase64());
-        QString enNormalPassword = QString::fromLatin1(encryption.encode(QString("").toUtf8(), hashKey).toBase64());
+        QString enNormalPassword = QString::fromLatin1(encryption.encode(QString("storyyey_root@github").toUtf8(), hashKey).toBase64());
 
         QString enAdminUser = QString::fromLatin1(encryption.encode(QString("admin").toUtf8(), hashKey).toBase64());
-        QString enAdminPassword = QString::fromLatin1(encryption.encode(QString("").toUtf8(), hashKey).toBase64());
+        QString enAdminPassword = QString::fromLatin1(encryption.encode(QString("storyyey_admin@github").toUtf8(), hashKey).toBase64());
 
         if ((QString(username).toUtf8() == enNormalUser && \
             QString(password).toUtf8() == enNormalPassword) ||\
@@ -365,7 +360,7 @@ void Login::closeEvent(QCloseEvent *event)
 
 bool Login::lastLoginRecord(QString licence, QString version)
 {
-    QString key(devuuid);
+    QString key(devuuid + "storyyey@github_logininfo");
     QAESEncryption encryption(QAESEncryption::AES_128, QAESEncryption::ECB, QAESEncryption::ZERO);
     QByteArray hashKey = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5);
 
@@ -389,7 +384,7 @@ bool Login::lastLoginValid(QString licence, QString version)
 {
     Q_UNUSED(version);
     QJsonParseError err;
-    QString key(devuuid);
+    QString key(devuuid + "storyyey@github_logininfo");
     QAESEncryption encryption(QAESEncryption::AES_128, QAESEncryption::ECB, QAESEncryption::ZERO);
     QByteArray hashKey = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5);
 
@@ -437,7 +432,6 @@ QString Login::getUUID()
 
 void Login::on_loginPushButton_clicked()
 {
-    autoLogin();
     if (!loginCheck(ui->userNamelineEdit->text(), ui->passwordlineEdit->text(), true)) {
         QSettings operationSettings("login.ini", QSettings::IniFormat);
         operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));

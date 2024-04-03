@@ -6,8 +6,8 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
-    QCoreApplication::setOrganizationName("");
-    QCoreApplication::setOrganizationDomain("");
+    QCoreApplication::setOrganizationName("storyyey@github");
+    QCoreApplication::setOrganizationDomain("storyyey@github");
     QCoreApplication::setApplicationName("Diagnostics tools");
     w.setWindowTitle("Diagnostics tools");
     //QFont font  = a.font();

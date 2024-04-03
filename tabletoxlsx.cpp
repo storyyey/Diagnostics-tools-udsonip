@@ -1,11 +1,12 @@
 #include "tabletoxlsx.h"
+#ifdef __HAVE_XLSX__
 #include "QtXlsx/xlsxdocument.h"
 #include "QtXlsx/xlsxformat.h"
 #include "QtXlsx/xlsxworkbook.h"
 #include "QtXlsx/xlsxworksheet.h"
-#include <QDebug>
-
 QTXLSX_USE_NAMESPACE
+#endif /* __HAVE_XLSX__ */
+#include <QDebug>
 
 TableToXlsx::TableToXlsx(QObject *parent) : QObject(parent)
 {
@@ -14,6 +15,7 @@ TableToXlsx::TableToXlsx(QObject *parent) : QObject(parent)
 
 bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file)
 {
+#ifdef __HAVE_XLSX__
     Document xlsx(file);
     int row = 0, column = 0;
     int sheetRowCount = 0;
@@ -47,12 +49,13 @@ bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file)
         }
     }
     xlsx.save();
-
+#endif /* __HAVE_XLSX__ */
     return 0;
 }
 
 bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file, int colorColumn)
 {
+#ifdef __HAVE_XLSX__
     Document xlsx(file);
     int row = 0, column = 0;
     int sheetRowCount = 0;
@@ -94,12 +97,13 @@ bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file, in
         }
     }
     xlsx.save();
-
+#endif /* __HAVE_XLSX__ */
     return 0;
 }
 
 bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file, const QString prefix, int colorColumn)
 {
+#ifdef __HAVE_XLSX__
     Document xlsx(file); /* 打开大文件这里会耗时很长 */
     int row = 0, column = 0;
     int sheetRowCount = 0;
@@ -145,6 +149,6 @@ bool TableToXlsx::modelToXlsx(QStandardItemModel &model, const QString &file, co
         }
     }
     xlsx.save(); /* 保存大文件这里会耗时很长 */
-
+#endif /* __HAVE_XLSX__ */
     return 0;
 }

@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget *parent)
     toolCharHexTransform = new ToolCharHexTransform();
     g_toolRealTimeLog = toolRealTimeLog = new ToolRealTimeLog();
 
-    setCentralWidget(uds.UDSMainWidget());
+    setCentralWidget(uds.mainWidget());
     QMenuBar *menuBr = menuBar();
     QMenu *fileMenu = menuBr->addMenu("文件(F)");
     QMenu *configMenu = menuBr->addMenu("配置(C)");
@@ -176,7 +176,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     aboutMenu->addAction("Version: " + QString(SOFT_VERSION))->setIcon(QIcon(":/icon/version.png"));
     aboutMenu->addAction("Compile time: " + QString(__DATE__) + " " + QString(__TIME__))->setIcon(QIcon(":/icon/date.png"));
-    aboutMenu->addAction("Author: yeyong")->setIcon(QIcon(":/icon/author.png"));
+    aboutMenu->addAction("Author:storyyey@github")->setIcon(QIcon(":/icon/author.png"));
 
     QAction *userManualAction = aboutMenu->addAction("使用手册");
     userManualAction->setIcon(QIcon(":/icon/manual.png"));
@@ -421,8 +421,8 @@ void MainWindow::setAppFilepath(QString filepath)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    uds.serviceSetBackupCache();
-    uds.operationCache();
+    uds.writeServiceSetCache();
+    uds.writeUserActionCache();
     doipClient.operationCache();
     /* 保存主窗口大小和位置 */
     QSettings settings(QDir::currentPath() + "/backcache/" + "attr.ini", QSettings::IniFormat);

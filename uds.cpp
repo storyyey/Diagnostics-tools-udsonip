@@ -16,7 +16,6 @@ UDS::UDS(QObject *parent) : QObject(parent)
     manualSendRowIndex = -1;
     serviceListTaskTimer = new QTimer();
     connect(serviceListTaskTimer, &QTimer::timeout, this, [this]{
-        quint32 sendFailedCnt = 0;
         if (serviceActive()) {
             if (!highPerformanceEnable) {
                 /* 高性能模式下不进行UI操作 */
@@ -43,27 +42,15 @@ UDS::UDS(QObject *parent) : QObject(parent)
                     }
                     setActiveServiceFlicker(itemList);
 #endif
-                    if (sendServiceRequest(serviceActiveTask.indexRow, serviceActiveTask.channelName)) {
+                    if (sendServiceRequest(serviceActiveTask.indexRow, serviceActiveTask.channelName) || true) {
                         /* 发送成功了才能退出while循环 */
                         serviceItem data;
                         getServiceItemData(serviceActiveTask.indexRow, data);
                         /* 启动一下定时器 */
-                        serviceActiveTask.responseTimer.setInterval(data.timeout + 100);
+                        int tmms = data.timeout > 0 ? data.timeout : P2ServerMax;
+                        serviceActiveTask.responseTimer.setInterval(tmms);
                         serviceActiveTask.responseTimer.start();
-
-                        sendFailedCnt = 0;
                         break;
-                    }
-                    else {
-                        /* 发送失败重试几次，如果失败就失败了 */
-                        sendFailedCnt++;
-                        if (sendFailedCnt > 3) {
-                            sendFailedCnt = 0;
-                        }
-                        else {
-                            /* 还是尝试发送这个 */
-                            serviceActiveTask.indexRow--;
-                        }
                     }
                 }
                 else if (serviceActiveTask.indexRow == serviceSetModel->rowCount() - 1) {
@@ -83,7 +70,6 @@ UDS::UDS(QObject *parent) : QObject(parent)
     connect(&serviceActiveTask.responseTimer, &QTimer::timeout, this, [this]{
         QByteArray response;
         diagnosisResponseHandle(serviceActiveTask.channelName, DoipClientConnect::TimeoutFinish, response);
-        // abortServiceTask();
     });
 
     serviceMap.insert(QString::asprintf("DiagnosticSessionControl(0x%02X)", DiagnosticSessionControl), DiagnosticSessionControl);
@@ -431,47 +417,72 @@ UDS::UDS(QObject *parent) : QObject(parent)
     createAdbProcess();
 }
 
-void UDS::backupCacheInit()
+void UDS::readUserActionCache()
 {
     QDir dir(serviceBackCacheDir);
     if (!dir.exists()) {
         dir.mkdir(serviceBackCacheDir);
     }
-    serviceSetBackTimer = new QTimer();
-    serviceSetBackTimer->setInterval(1000);
-    connect(serviceSetBackTimer, &QTimer::timeout, this, [this](){
-        serviceSetBackupCache();
-        serviceSetBackTimer->stop();
-    });
-    loadServiceSet(serviceBackCacheDir + "/serviceSetCache.json");
+    readServiceSet(serviceBackCacheDir + "/serviceSetCache.json");
 
-    QSettings operationSettings(serviceBackCacheDir + "udsOperationSettings.ini", QSettings::IniFormat);
-    operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));
+    QSettings settings(serviceBackCacheDir + "udsOperationSettings.ini", QSettings::IniFormat);
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
 
-    cycleNumberEdit->setText(QString("%1").arg(operationSettings.value("serviceTest/cycleNumber").toInt()));
-    serviceTestResultCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/serviceTestResultCheckBox").toInt());
-    UDSDescolumnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/UDSDescolumnCheckBox").toInt());
-    UDSResponseParseCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/UDSResponseParseCheckBox").toInt());
-    TestProjectNameEdit->setCurrentText(operationSettings.value("serviceTest/TestProjectNameEdit").toString());
-    SendBtnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/SendBtnCheckBox").toInt());
-    ConfigBtnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/ConfigBtnCheckBox").toInt());
-    UpBtnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/UpBtnCheckBox").toInt());
-    DownBtnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/DownBtnCheckBox").toInt());
-    DelBtnCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/DelBtnCheckBox").toInt());
-    doipDiagCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/doipDiagCheckBox").toInt());
-    canDiagCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/canDiagCheckBox").toInt());
-    canRequestAddr->setText(operationSettings.value("serviceTest/canRequestAddr").toString());
-    canResponseFuncAddr->setText(operationSettings.value("serviceTest/canResponseFuncAddr").toString());
-    canResponsePhysAddr->setText(operationSettings.value("serviceTest/canResponsePhysAddr").toString());
-    doipResponseFuncAddr->setText(operationSettings.value("serviceTest/doipResponseFuncAddr").toString());
-    doipResponsePhysAddr->setText(operationSettings.value("serviceTest/doipResponsePhysAddr").toString());
-    cycle3eEdit->setText(operationSettings.value("serviceTest/cycle3eEdit").toString());
-    taAdress3eEdit->setText(operationSettings.value("serviceTest/taAdress3eEdit").toString());
-    saAdress3eEdit->setText(operationSettings.value("serviceTest/saAdress3eEdit").toString());
-    highPerformanceCheckBox->setCheckState((Qt::CheckState)operationSettings.value("serviceTest/highPerformanceCheckBox").toInt());
+    cycleNumberEdit->setText(QString("%1").arg(settings.value("serviceTest/cycleNumber").toInt()));
+    serviceTestResultCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/serviceTestResultCheckBox").toInt());
+    UDSDescolumnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/UDSDescolumnCheckBox").toInt());
+    UDSResponseParseCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/UDSResponseParseCheckBox").toInt());
+    TestProjectNameEdit->setCurrentText(settings.value("serviceTest/TestProjectNameEdit").toString());
+    SendBtnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/SendBtnCheckBox").toInt());
+    ConfigBtnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/ConfigBtnCheckBox").toInt());
+    UpBtnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/UpBtnCheckBox").toInt());
+    DownBtnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/DownBtnCheckBox").toInt());
+    DelBtnCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/DelBtnCheckBox").toInt());
+    doipDiagCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/doipDiagCheckBox").toInt());
+    canDiagCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/canDiagCheckBox").toInt());
+    canRequestAddr->setText(settings.value("serviceTest/canRequestAddr").toString());
+    canResponseFuncAddr->setText(settings.value("serviceTest/canResponseFuncAddr").toString());
+    canResponsePhysAddr->setText(settings.value("serviceTest/canResponsePhysAddr").toString());
+    doipResponseFuncAddr->setText(settings.value("serviceTest/doipResponseFuncAddr").toString());
+    doipResponsePhysAddr->setText(settings.value("serviceTest/doipResponsePhysAddr").toString());
+    cycle3eEdit->setText(settings.value("serviceTest/cycle3eEdit").toString());
+    taAdress3eEdit->setText(settings.value("serviceTest/taAdress3eEdit").toString());
+    saAdress3eEdit->setText(settings.value("serviceTest/saAdress3eEdit").toString());
+    highPerformanceCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/highPerformanceCheckBox").toInt());
+    failureAbortCheckBox->setCheckState((Qt::CheckState)settings.value("serviceTest/failureAbortCheckBox").toInt());
 }
 
-QWidget *UDS::UDSMainWidget()
+void UDS::writeUserActionCache()
+{
+    QSettings settings(serviceBackCacheDir + "udsOperationSettings.ini", QSettings::IniFormat);
+
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
+    settings.setValue("serviceTest/cycleNumber", cycleNumberEdit->text().toInt());
+    settings.setValue("serviceTest/serviceTestResultCheckBox", serviceTestResultCheckBox->checkState());
+    settings.setValue("serviceTest/UDSDescolumnCheckBox", UDSDescolumnCheckBox->checkState());
+    settings.setValue("serviceTest/UDSResponseParseCheckBox", UDSResponseParseCheckBox->checkState());
+    settings.setValue("serviceTest/TestProjectNameEdit", TestProjectNameEdit->currentText());
+    settings.setValue("serviceTest/SendBtnCheckBox", SendBtnCheckBox->checkState());
+    settings.setValue("serviceTest/ConfigBtnCheckBox", ConfigBtnCheckBox->checkState());
+    settings.setValue("serviceTest/UpBtnCheckBox", UpBtnCheckBox->checkState());
+    settings.setValue("serviceTest/DownBtnCheckBox", DownBtnCheckBox->checkState());
+    settings.setValue("serviceTest/DelBtnCheckBox", DelBtnCheckBox->checkState());
+    settings.setValue("serviceTest/doipDiagCheckBox", doipDiagCheckBox->checkState());
+    settings.setValue("serviceTest/canDiagCheckBox", canDiagCheckBox->checkState());
+    settings.setValue("serviceTest/canRequestAddr", canRequestAddr->text());
+    settings.setValue("serviceTest/canResponseFuncAddr", canResponseFuncAddr->text());
+    settings.setValue("serviceTest/canResponsePhysAddr", canResponsePhysAddr->text());
+    settings.setValue("serviceTest/doipResponseFuncAddr", doipResponseFuncAddr->text());
+    settings.setValue("serviceTest/doipResponsePhysAddr", doipResponsePhysAddr->text());
+    settings.setValue("serviceTest/cycle3eEdit", cycle3eEdit->text());
+    settings.setValue("serviceTest/taAdress3eEdit", taAdress3eEdit->text());
+    settings.setValue("serviceTest/saAdress3eEdit", saAdress3eEdit->text());
+    settings.setValue("serviceTest/highPerformanceCheckBox", highPerformanceCheckBox->checkState());
+    settings.setValue("serviceTest/failureAbortCheckBox", failureAbortCheckBox->checkState());
+    settings.sync();
+}
+
+QWidget *UDS::mainWidget()
 {
     ProjectListWidget = serviceProjectListWidget();
     ProjectListWidget->hide();
@@ -488,7 +499,6 @@ QWidget *UDS::UDSMainWidget()
                        "margin: 0.5px;"
                        "border-radius: 1px;"
                    "}";
-
     QWidget *udsMainWidget = new QWidget();
     QVBoxLayout *udsMainLayout = new QVBoxLayout();
     udsMainWidget->setLayout(udsMainLayout);
@@ -525,9 +535,33 @@ QWidget *UDS::UDSMainWidget()
     promptActionProgress->setOrientation(Qt::Horizontal);
     promptActionProgress->hide();
 
-    udsMainLayout->addWidget(UDSChannelSelectWidget());
-    udsMainLayout->addWidget(UDSOperationConfigWidget());
-    udsMainLayout->addWidget(userSelectWidget());
+    udstabWidget = new QTabWidget();
+    udstabWidget->setStyleSheet("QTabBar::tab:selected {\
+                               color: #FFFFFF;\
+                               background-color: #33A1C9;\
+                              } \
+                              QTabBar::tab:!selected {\
+                               color: #000000;\
+                               background-color: #FFFFFF;\
+                              }"\
+                              "QTabWidget::pane {\
+                               border:1px solid #33A1C9;\
+                               background: transparent;\
+                               margin-top: 0px;\
+                              }");
+    udstabWidget->setMaximumHeight(130);
+    udsMainLayout->addWidget(udstabWidget);
+    udstabWidget->addTab(operationConfigWidget(), "操作选项");
+    udstabWidget->setTabIcon(udstabWidget->count() - 1, QIcon(":/icon/operation.png"));
+    // udsMainLayout->addWidget(channelSelectWidget());
+    udstabWidget->addTab(channelSelectWidget(), "通道选择");
+    udstabWidget->setTabIcon(udstabWidget->count() - 1, QIcon(":/icon/channel.png"));
+    // udsMainLayout->addWidget(operationConfigWidget());
+    // udsMainLayout->addWidget(userSelectWidget());
+    udstabWidget->addTab(serviceGeneralConfigWidget(), "UDS通用配置");
+    udstabWidget->setTabIcon(udstabWidget->count() - 1, QIcon(":/icon/reset.png"));
+    udstabWidget->addTab(uiConfigWidget(), "界面配置");
+    udstabWidget->setTabIcon(udstabWidget->count() - 1, QIcon(":/icon/interface.png"));
 
     progressWidget = new QWidget();
     progressWidget->setContentsMargins(0, 0, 0, 0);
@@ -581,7 +615,7 @@ QWidget *UDS::UDSMainWidget()
     serviceItemStatisLabel[serviceItemTestFail]->setStyleSheet(QString("QLabel{background-color: %1;height: 25px;}").arg(serviceItemStateColor[serviceItemTestFail]));
     serviceItemStatisLabel[serviceItemTestWarn]->setStyleSheet(QString("QLabel{background-color: %1;height: 25px;}").arg(serviceItemStateColor[serviceItemTestWarn]));
     udsMainLayout->addLayout(statisLayout);
-
+#ifdef __HAVE_CHARTS__
     chart = new QChart();
     chart->setAnimationOptions(QChart::SeriesAnimations);
     chart->setContentsMargins(0, 0, 0, 0);  //设置外边界全部为0
@@ -600,7 +634,7 @@ QWidget *UDS::UDSMainWidget()
     chartView->setContentsMargins(0, 0, 0, 0);  //设置外边界全部为0
     chartView->hide();
     udsMainLayout->addWidget(chartView);
-
+#endif /* __HAVE_CHARTS__  */
     //serviceProjectLayout->addStretch();
 
     QHBoxLayout *testTableLayout = new QHBoxLayout();
@@ -630,6 +664,7 @@ QWidget *UDS::UDSMainWidget()
     serviceSetView->setModel(serviceSetModel);
     QItemSelectionModel *theSelection = new QItemSelectionModel(serviceSetModel) ; //选择模型
     connect(theSelection, &QItemSelectionModel::currentChanged, this, [this](const QModelIndex &current, const QModelIndex &previous){
+        return ;
         Q_UNUSED(previous);
         if (current.isValid()){
             if (udsViewResponseColumn == current.column() /* || udsViewExpectResponseColumn == current.column() */) {
@@ -654,34 +689,10 @@ QWidget *UDS::UDSMainWidget()
             }
         }
     });
-    serviceSetView-> setSelectionModel(theSelection) ; //设置选择模型
+    serviceSetView-> setSelectionModel(theSelection) ;
     serviceSetView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     serviceSetView->setSelectionBehavior(QAbstractItemView::SelectItems);
-    //UDStabView->setSelectionBehavior(QAbstractItemView::SelectRows);
     serviceSetView->setContextMenuPolicy(Qt::CustomContextMenu);
-#if 0
-    serviceSetView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewItemEnable, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewItemEnable, 35);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewSupressColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewSupressColumn, 35);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewTimeoutColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewTimeoutColumn, 60);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewDelayColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewDelayColumn, 60);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewConfigBtnColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewConfigBtnColumn, 40);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewSendBtnColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewSendBtnColumn, 60);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewDelBtnColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewDelBtnColumn, 40);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewUpBtnColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewUpBtnColumn, 40);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewDownBtnColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewDownBtnColumn, 40);
-    serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewElapsedTimeColumn, QHeaderView::Fixed);
-    serviceSetView->setColumnWidth(udsViewElapsedTimeColumn, 60);
-#else
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewItemEnable, QHeaderView::ResizeToContents);
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewSupressColumn, QHeaderView::ResizeToContents);
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewTimeoutColumn, QHeaderView::ResizeToContents);
@@ -692,12 +703,9 @@ QWidget *UDS::UDSMainWidget()
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewUpBtnColumn, QHeaderView::ResizeToContents);
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewDownBtnColumn, QHeaderView::ResizeToContents);
     serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewElapsedTimeColumn, QHeaderView::ResizeToContents);
-    //serviceSetView->horizontalHeader()->setSectionResizeMode(udsViewRemarkColumn, QHeaderView::ResizeToContents);
     serviceSetView->horizontalHeader()->setStretchLastSection(true);
-#endif
     serviceSetView->setEditTriggers(QAbstractItemView::NoEditTriggers);
     serviceSetView->setAlternatingRowColors(true);
-    //UDStabView->setSortingEnabled(true);
     serviceSetView->setColumnHidden(udsViewResultColumn, true);
     testTableLayout->addWidget(serviceSetView);
 
@@ -774,7 +782,13 @@ QWidget *UDS::UDSMainWidget()
     connect(serviceSetView, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextMenuSlot(QPoint)));
     udsViewSetColumnHidden(true);
 
-    backupCacheInit();
+    serviceSetBackTimer = new QTimer();
+    serviceSetBackTimer->setInterval(1000);
+    connect(serviceSetBackTimer, &QTimer::timeout, this, [this](){
+        writeServiceSetCache();
+        serviceSetBackTimer->stop();
+    });
+    readUserActionCache();
 
     return udsMainWidget;
 }
@@ -789,36 +803,40 @@ QWidget *UDS::userSelectWidget()
     return mainWidget;
 }
 
-QWidget *UDS::UDSChannelSelectWidget()
+QWidget *UDS::channelSelectWidget()
 {
-    QGroupBox *mainWidget = new QGroupBox();
+    QWidget *mainWidget = new QWidget();
 
-    mainWidget->setTitle("UDS通道配置");
     QVBoxLayout *mainLayout = new QVBoxLayout();
     mainWidget->setLayout(mainLayout);
-    mainWidget->setMaximumHeight(200);
+    mainWidget->setMaximumHeight(85);
 
     QHBoxLayout *channelSelectLayout = new QHBoxLayout();
     mainLayout->addLayout(channelSelectLayout);
 
     QHBoxLayout *doipInfoLayout = new QHBoxLayout();
     doipInfoLayout->setContentsMargins(0, 0, 0, 0);
+    QStackedWidget *stackedWidget = new QStackedWidget();
+    stackedWidget->setMaximumHeight(100);
+    mainLayout->addWidget(stackedWidget);
     doipChannelConfigWidget = new QWidget();
     doipChannelConfigWidget->setLayout(doipInfoLayout);
-    mainLayout->addWidget(doipChannelConfigWidget);
-    //mainLayout->addLayout(doipInfoLayout);
+    // mainLayout->addWidget(doipChannelConfigWidget);
+    stackedWidget->addWidget(doipChannelConfigWidget);
     doipDiagCheckBox = new QCheckBox("UDSonIP");
     channelSelectLayout->addWidget(doipDiagCheckBox);
     doipInfoLayout->addWidget(new QLabel("DOIP通道:"));
     doipServerListBox = new QComboBox();
-    doipServerListBox->setMinimumWidth(200);
+    doipServerListBox->setMinimumWidth(160);
     doipServerListBox->addItem("");
     doipInfoLayout->addWidget(doipServerListBox);
     doipResponsePhysAddr = new QLineEdit();
+    doipResponsePhysAddr->setMaximumWidth(60);
     doipResponsePhysAddr->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
     doipInfoLayout->addWidget(new QLabel("物理地址:"));
     doipInfoLayout->addWidget(doipResponsePhysAddr);
     doipResponseFuncAddr = new QLineEdit();
+    doipResponseFuncAddr->setMaximumWidth(60);
     doipResponseFuncAddr->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
     doipInfoLayout->addWidget(new QLabel("功能地址:"));
     doipInfoLayout->addWidget(doipResponseFuncAddr);
@@ -831,24 +849,27 @@ QWidget *UDS::UDSChannelSelectWidget()
 
     QHBoxLayout *candiagLayout = new QHBoxLayout();
     candiagLayout->setContentsMargins(0, 0, 0, 0);
-    //mainLayout->addLayout(candiagLayout);
     canChannelConfigWidget = new QWidget();
     canChannelConfigWidget->setLayout(candiagLayout);
-    mainLayout->addWidget(canChannelConfigWidget);
+    // mainLayout->addWidget(canChannelConfigWidget);
+    stackedWidget->addWidget(canChannelConfigWidget);
 
     canDiagCheckBox = new QCheckBox("UDSonCAN");
     channelSelectLayout->addWidget(canDiagCheckBox);
     canDiagCheckBox->setCheckState(Qt::Unchecked);
     candiagLayout->addWidget(can->deviceManageWidget());
     canRequestAddr = new QLineEdit();
+    canRequestAddr->setMaximumWidth(80);
     canRequestAddr->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
     candiagLayout->addWidget(new QLabel("请求地址:"));
     candiagLayout->addWidget(canRequestAddr);
     canResponsePhysAddr = new QLineEdit();
+    canResponsePhysAddr->setMaximumWidth(80);
     canResponsePhysAddr->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
     candiagLayout->addWidget(new QLabel("物理地址:"));
     candiagLayout->addWidget(canResponsePhysAddr);
     canResponseFuncAddr = new QLineEdit();
+    canResponseFuncAddr->setMaximumWidth(80);
     canResponseFuncAddr->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
     candiagLayout->addWidget(new QLabel("功能地址:"));
     candiagLayout->addWidget(canResponseFuncAddr);
@@ -858,8 +879,8 @@ QWidget *UDS::UDSChannelSelectWidget()
     adbDiagLayout->setContentsMargins(0, 0, 0, 0);
     adbChannelConfigWidget = new QWidget();
     adbChannelConfigWidget->setLayout(adbDiagLayout);
-    mainLayout->addWidget(adbChannelConfigWidget);
-    //mainLayout->addLayout(adbDiagLayout);
+    //mainLayout->addWidget(adbChannelConfigWidget);
+    stackedWidget->addWidget(adbChannelConfigWidget);
     adbDiagCheckBox = new QCheckBox("UDSonADB");
     channelSelectLayout->addWidget(adbDiagCheckBox);
     adbDiagCheckBox->setCheckState(Qt::Unchecked);
@@ -900,96 +921,88 @@ QWidget *UDS::UDSChannelSelectWidget()
     adbPasswordEdit->setMinimumWidth(100);
     adbDiagLayout->addStretch();
 
-    connect(adbDiagCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+    connect(adbDiagCheckBox, &QCheckBox::stateChanged, this, [this, stackedWidget](int state){
         if (serviceActive()) {
-            promptForAction(QString("<font color = red><u>测试中无法操作</u></font>"));
+            promptForAction(QString("<font color = red>测试中无法操作</font>"));
             return ;
         }
 
         if (Qt::Checked == state) {
-            doipServerListBox->setCurrentText("");\
+            doipServerListBox->setCurrentText("");
             doipServerListBox->setEnabled(false);
             adbListenTimer->start();
             doipDiagCheckBox->setCheckState(Qt::Unchecked);
             canDiagCheckBox->setCheckState(Qt::Unchecked);
-            doipChannelConfigWidget->hide();
-            canChannelConfigWidget->hide();
-            adbChannelConfigWidget->show();
+            IPDiagPcapCheckBox->setEnabled(false);
+            stackedWidget->setCurrentWidget(adbChannelConfigWidget);
+            udstabWidget->setTabText(1, "ADB通道");
         } else {
             doipServerListBox->setEnabled(true);
             adbListenTimer->stop();
         }
     });
 
-    connect(canDiagCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+    connect(canDiagCheckBox, &QCheckBox::stateChanged, this, [this, stackedWidget](int state){
         if (serviceActive()) {
-            promptForAction(QString("<font color = red><u>测试中无法操作</u></font>"));
+            promptForAction(QString("<font color = red>测试中无法操作</font>"));
             return ;
         }
 
         if (Qt::Checked == state) {
             doipDiagCheckBox->setCheckState(Qt::Unchecked);
             adbDiagCheckBox->setCheckState(Qt::Unchecked);
-            doipChannelConfigWidget->hide();
-            canChannelConfigWidget->show();
-            adbChannelConfigWidget->hide();
+            IPDiagPcapCheckBox->setEnabled(false);
+            stackedWidget->setCurrentWidget(canChannelConfigWidget);
+            udstabWidget->setTabText(1, "CAN通道");
         }
     });
 
-    connect(doipDiagCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+    connect(doipDiagCheckBox, &QCheckBox::stateChanged, this, [this, stackedWidget](int state){
         if (serviceActive()) {
-            promptForAction(QString("<font color = red><u>测试中无法操作</u></font>"));
+            promptForAction(QString("<font color = red>测试中无法操作</font>"));
             return ;
         }
 
         if (Qt::Checked == state) {
             canDiagCheckBox->setCheckState(Qt::Unchecked);
             adbDiagCheckBox->setCheckState(Qt::Unchecked);
-            doipChannelConfigWidget->show();
-            canChannelConfigWidget->hide();
-            adbChannelConfigWidget->hide();
+            IPDiagPcapCheckBox->setEnabled(true);
+            stackedWidget->setCurrentWidget(doipChannelConfigWidget);
+            udstabWidget->setTabText(1, "DOIP通道");
         }
     });
-
-   // mainLayout->addStretch();
+    channelSelectLayout->addStretch();
+    mainLayout->addStretch();
 
     return mainWidget;
 }
 
-QWidget *UDS::UDSOperationConfigWidget()
+QWidget *UDS::operationConfigWidget()
 {
-    QGroupBox *mainWidget = new QGroupBox();
+    QWidget *mainWidget = new QWidget();
 
     mainWidget->setStyleSheet(btnCommonStyle);
-#if 0
-    mainWidget->setStyleSheet("QPushButton{background-color:#43CD80; color: black; border-radius: 2px; border: 1px groove gray;}"\
-                                        "QPushButton:hover{background-color:white; color: black;}"\
-                                        "QPushButton:pressed{background-color:#00EE76;border-style: inset; }");
-#endif
-    mainWidget->setTitle("操作配置");
     QVBoxLayout *mainLayout = new QVBoxLayout();
     mainWidget->setLayout(mainLayout);
 
     QHBoxLayout *serviceConfigLayout = new QHBoxLayout();
     mainLayout->addLayout(serviceConfigLayout);
 
-    addServiceBtn = new QPushButton("UDS服务");
+    addServiceBtn = new QPushButton("服务配置");
     addServiceBtn->setIcon(QIcon(":/icon/config1.png"));
-    serviceConfigLayout->addWidget(addServiceBtn);
     connect(addServiceBtn, &QPushButton::clicked, this, [this]{
         if (serviceActive()) {
-            promptForAction(QString("<font color = red><u>测试中无法%1</u></font>").arg(addServiceBtn->text()));
+            promptForAction(QString("<font color = red>测试中无法%1</font>").arg(addServiceBtn->text()));
             return ;
         }
         modifyRowIndex = -1;
-        udsRequestConfigBtn->setText("添加到列表");
+        udsRequestConfigBtn->setText("诊断服务添加至列表");
         serviceSetWidget->show();
         udsViewSetColumnHidden(false);
     });
 
     addDidDescBtn = new QPushButton("DID描述");
     addDidDescBtn->setIcon(QIcon(":/icon/addList.png"));
-    serviceConfigLayout->addWidget(addDidDescBtn);
     connect(addDidDescBtn, &QPushButton::clicked, this, []{
         qDebug() << "功能未实现";
         QMessageBox::warning(nullptr, tr("提示"), tr("功能未实现"));
@@ -997,7 +1010,6 @@ QWidget *UDS::UDSOperationConfigWidget()
 
     addDtcDescBtn = new QPushButton("DTC描述");
     addDtcDescBtn->setIcon(QIcon(":/icon/addList.png"));
-    serviceConfigLayout->addWidget(addDtcDescBtn);
     connect(addDtcDescBtn, &QPushButton::clicked, this, []{
         qDebug() << "功能未实现";
         QMessageBox::warning(nullptr, tr("提示"), tr("功能未实现"));
@@ -1014,7 +1026,7 @@ QWidget *UDS::UDSOperationConfigWidget()
     if (!dir.exists()) {
         dir.mkdir(serviceSetProjectDir);
     }
-    udsProjectLayout->addWidget(new QLabel("UDS服务集合:"));
+    udsProjectLayout->addWidget(new QLabel("服务集合:"));
     TestProjectNameEdit = new QComboBox();
     TestProjectNameEdit->setEditable(true);
     TestProjectNameEdit->setMinimumWidth(250);
@@ -1029,7 +1041,6 @@ QWidget *UDS::UDSOperationConfigWidget()
         }
     }
     udsProjectLayout->addWidget(TestProjectNameEdit);
-    // udsProjectLayout->addStretch();
     saveTestProjectBtn = new QPushButton("保存方案");
     saveTestProjectBtn->setIcon(QIcon(":/icon/save.png"));
     udsProjectLayout->addWidget(saveTestProjectBtn);
@@ -1063,7 +1074,7 @@ QWidget *UDS::UDSOperationConfigWidget()
             }
             fileName =  serviceSetProjectDir + "/" + fileName + ".json";
         }
-        saveServiceSet(fileName);
+        saveCurrServiceSet(fileName);
         TestProjectNameEdit->addItem(fileinfo.fileName());
         TestProjectNameEdit->setCurrentText(fileinfo.fileName());
         projectNameComBox->addItem(fileinfo.fileName());
@@ -1084,7 +1095,7 @@ QWidget *UDS::UDSOperationConfigWidget()
           case 1: default: return ; break;
         }
 
-        loadServiceSet(serviceSetProjectDir + "/" + TestProjectNameEdit->lineEdit()->text());
+        readServiceSet(serviceSetProjectDir + "/" + TestProjectNameEdit->lineEdit()->text());
         promptForAction(QString("<font color = green>%1成功</font>").arg(loadTestProjectBtn->text()));
     });
 
@@ -1119,105 +1130,20 @@ QWidget *UDS::UDSOperationConfigWidget()
     cycleNumberEdit->setValidator(new QIntValidator(0, 100000, cycleNumberEdit));
     cycleNumberEdit->setMaximumWidth(60);
     udsOpInfoLayout->addWidget(cycleNumberEdit);
-    udsOpInfoLayout->addStretch();
+    //udsOpInfoLayout->addStretch();
 
     udsOpInfoLayout->addWidget(new QLabel("单耗时(ms):"));
     serviceElapsedTimeLCDNumber = new QLCDNumber();
     serviceElapsedTimeLCDNumber->setDigitCount(7);
     serviceElapsedTimeLCDNumber->setSegmentStyle(QLCDNumber::Flat);
     udsOpInfoLayout->addWidget(serviceElapsedTimeLCDNumber);
-    udsOpInfoLayout->addStretch();
+    //udsOpInfoLayout->addStretch();
 
     udsOpInfoLayout->addWidget(new QLabel("总耗时(ms):"));
     allServiceElapsedTimeLCDNumber = new QLCDNumber();
     allServiceElapsedTimeLCDNumber->setDigitCount(9);
     allServiceElapsedTimeLCDNumber->setSegmentStyle(QLCDNumber::Flat);
     udsOpInfoLayout->addWidget(allServiceElapsedTimeLCDNumber);
-    udsOpInfoLayout->addStretch();
-
-    QHBoxLayout *service3ELayout = new QHBoxLayout();
-    mainLayout->addLayout(service3ELayout);
-
-    service3ELayout->addWidget(new QLabel("36传输字节:"));
-    transfer36MaxlenEdit = new QLineEdit();
-    transfer36MaxlenEdit->setValidator(new QIntValidator(0, 100000, transfer36MaxlenEdit));
-    transfer36MaxlenEdit->setMaximumWidth(60);
-    service3ELayout->addWidget(transfer36MaxlenEdit);
-    connect(transfer36MaxlenEdit, &QLineEdit::textChanged, this, [this](const QString &text){
-        transfer36Maxlen = text.toUInt();
-    });
-
-    service3ELayout->addStretch();
-
-    QCheckBox *enable3e = new QCheckBox("TesterPresent(3E)");
-    service3ELayout->addWidget(enable3e);
-    connect(enable3e, &QCheckBox::stateChanged, this, [this](int state){
-        if (cycle3eTimer == nullptr || cycle3eEdit == nullptr) return ;
-        if (Qt::Checked == state) {
-            if (cycle3eEdit->text().size() == 0) {
-                cycle3eEdit->setText("2000");
-            }
-            cycle3eTimer->setInterval(cycle3eEdit->text().toUInt());
-            cycle3eTimer->start();
-            cycle3eEdit->setEnabled(false);
-        } else {
-            cycle3eTimer->stop();
-            cycle3eEdit->setEnabled(true);
-        }
-    });
-    service3ELayout->addWidget(new QLabel("发送周期(ms):"));
-    cycle3eEdit = new QLineEdit();
-    cycle3eEdit->setValidator(new QIntValidator(0, 100000, cycleNumberEdit));
-    cycle3eEdit->setMaximumWidth(40);
-    cycle3eEdit->setText("2000");
-    service3ELayout->addWidget(cycle3eEdit);
-
-    service3ELayout->addWidget(new QLabel("源地址:"));
-    saAdress3eEdit = new QLineEdit();
-    saAdress3eEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
-    saAdress3eEdit->setMaximumWidth(70);
-    service3ELayout->addWidget(saAdress3eEdit);
-
-    service3ELayout->addWidget(new QLabel("目的地址:"));
-    taAdress3eEdit = new QLineEdit();
-    taAdress3eEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
-    taAdress3eEdit->setMaximumWidth(70);
-    service3ELayout->addWidget(taAdress3eEdit);
-
-    suppress3eCheckBox = new QCheckBox("抑制响应");
-    service3ELayout->addWidget(suppress3eCheckBox);
-    suppress3eCheckBox->setCheckState(Qt::Checked);
-
-    fixCycle3eCheckBox = new QCheckBox("固定周期");
-    service3ELayout->addWidget(fixCycle3eCheckBox);
-    fixCycle3eCheckBox->setCheckState(Qt::Checked);
-
-    cycle3eTimer = new QTimer();
-    connect(cycle3eTimer, &QTimer::timeout, this, [this]{
-        bool isspuress = suppress3eCheckBox->checkState() == Qt::Checked ? true :false;
-        quint32 ta = taAdress3eEdit->text().toUInt(nullptr, 16);
-        quint32 sa = taAdress3eEdit->text().toUInt(nullptr, 16);
-        char msg[] = {0x3e, 0x00};
-        if (isspuress) {
-            msg[1] = 0x80;
-        }
-        if (ta == 0) return ;
-
-        if (doipDiagCheckBox->checkState() == Qt::Checked) {
-            if (doipServerListBox->currentText().size() > 0) {
-                DoipClientConnect *conn = doipConnMap.find(doipServerListBox->currentText()).value();
-                if (conn) {
-                    conn->diagnosisRequest(msg, sizeof(msg), ta, isspuress, 0);
-                }
-            }
-        } else if (canDiagCheckBox->checkState() == Qt::Checked){
-            if (can) {
-                can->sendRequest(msg, sizeof(msg), sa, ta, isspuress, 0);
-            }
-        } else {
-            adbDiagRequest(msg, sizeof(msg), ta, isspuress, 0);
-        }
-    });
 
     testResultCheckBox = new QCheckBox("保存结果");
     udsOpInfoLayout->addWidget(testResultCheckBox);
@@ -1275,9 +1201,10 @@ QWidget *UDS::UDSOperationConfigWidget()
             adbDiagCheckBox->checkState() != Qt::Checked &&\
             (canDiagCheckBox->checkState() != Qt::Checked || \
              can->getCurrChannel().size() == 0)) {
-            promptForAction(QString("<font color = red><u>未选择UDS通道</u></font>"));
+            promptForAction(QString("<font color = red>未选择有效UDS通道</font>"));
             return ;
         }
+        // CANDiagPcap.startCANCapturePackets("");
         addDidDescBtn->setEnabled(false);
         addDtcDescBtn->setEnabled(false);
         addServiceBtn->setEnabled(false);
@@ -1307,6 +1234,9 @@ QWidget *UDS::UDSOperationConfigWidget()
             serviceActiveTask.channelName = can->getCurrChannel();
         } else if (doipDiagCheckBox->checkState() == Qt::Checked) {
             serviceActiveTask.channelName = doipServerListBox->currentText();
+            if (IPDiagPcapCheckBox->checkState() == Qt::Checked) {
+                diagPcap.startIPCapturePackets(QHostAddress(serviceActiveTask.channelName.split("/").at(0)));
+            }
         }
         getServiceItemData(serviceActiveTask.indexRow, serviceActiveTask.data);
         serviceActiveTask.cyclenum = 0;
@@ -1337,7 +1267,7 @@ QWidget *UDS::UDSOperationConfigWidget()
         }
         setActiveServiceFlicker(itemList);
 #endif
-        promptForAction(QString("<font color = green><u>测试开始</u></font>"));
+        promptForAction(QString("<font color = green>测试准备开始</font>"));
     });
     sendAbortListBtn = new QPushButton("终止测试");
     sendAbortListBtn->setEnabled(false);
@@ -1360,78 +1290,22 @@ QWidget *UDS::UDSOperationConfigWidget()
     QHBoxLayout *infoShowLayout = new QHBoxLayout();
     mainLayout->addLayout(infoShowLayout);
 
-    UDSDescolumnCheckBox = new QCheckBox("备注");
-    infoShowLayout->addWidget(UDSDescolumnCheckBox);
-    UDSDescolumnCheckBox->setCheckState(Qt::Checked);
-    connect(UDSDescolumnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewRemarkColumn, false);
-        } else {
-            serviceSetView->setColumnHidden(udsViewRemarkColumn, true);
-        }
-    });
+    failureAbortCheckBox = new QCheckBox("失败终止");
+    failureAbortCheckBox->setToolTip("有失败项将终止测试");
+    infoShowLayout->addWidget(failureAbortCheckBox);
 
-    SendBtnCheckBox = new QCheckBox("发送");
-    infoShowLayout->addWidget(SendBtnCheckBox);
-    SendBtnCheckBox->setCheckState(Qt::Checked);
-    connect(SendBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewSendBtnColumn, false);
+    IPDiagPcapCheckBox = new QCheckBox("pcap保存");
+    IPDiagPcapCheckBox->setToolTip("将收集保存所有的doip诊断报文");
+    infoShowLayout->addWidget(IPDiagPcapCheckBox);
+    connect(IPDiagPcapCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (Qt::Checked != state) {
+            // highPerformanceEnable = false;
+            // promptForAction(QString("<font color = red>高性能模式关闭，开启更多的UI动画将影响测试性能</font>"));
         } else {
-            serviceSetView->setColumnHidden(udsViewSendBtnColumn, true);
+            // highPerformanceEnable = true;
+            // promptForAction(QString("<font color = green>高性能模式开启，将减少UI动画提高测试性能</font>"));
         }
     });
-
-    ConfigBtnCheckBox = new QCheckBox("配置");
-    infoShowLayout->addWidget(ConfigBtnCheckBox);
-    ConfigBtnCheckBox->setCheckState(Qt::Checked);
-    connect(ConfigBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewConfigBtnColumn, false);
-        } else {
-            serviceSetView->setColumnHidden(udsViewConfigBtnColumn, true);
-        }
-    });
-
-    UpBtnCheckBox = new QCheckBox("上移");
-    infoShowLayout->addWidget(UpBtnCheckBox);
-    UpBtnCheckBox->setCheckState(Qt::Checked);
-    connect(UpBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewUpBtnColumn, false);
-        } else {
-            serviceSetView->setColumnHidden(udsViewUpBtnColumn, true);
-        }
-    });
-
-    DownBtnCheckBox = new QCheckBox("下移");
-    infoShowLayout->addWidget(DownBtnCheckBox);
-    DownBtnCheckBox->setCheckState(Qt::Checked);
-    connect(DownBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewDownBtnColumn, false);
-        } else {
-            serviceSetView->setColumnHidden(udsViewDownBtnColumn, true);
-        }
-    });
-
-    DelBtnCheckBox = new QCheckBox("删除");
-    infoShowLayout->addWidget(DelBtnCheckBox);
-    DelBtnCheckBox->setCheckState(Qt::Checked);
-    connect(DelBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (serviceSetView == nullptr) return ;
-        if (Qt::Checked == state) {
-            serviceSetView->setColumnHidden(udsViewDelBtnColumn, false);
-        } else {
-            serviceSetView->setColumnHidden(udsViewDelBtnColumn, true);
-        }
-    });
-    infoShowLayout->addStretch();
 
     highPerformanceCheckBox = new QCheckBox("高性能模式");
     highPerformanceCheckBox->setToolTip("将减少UI动画提高测试性能");
@@ -1445,19 +1319,6 @@ QWidget *UDS::UDSOperationConfigWidget()
             promptForAction(QString("<font color = green>高性能模式开启，将减少UI动画提高测试性能</font>"));
         }
     });
-
-    serviceTestResultCheckBox = new QCheckBox("图表统计");
-    infoShowLayout->addWidget(serviceTestResultCheckBox);
-    serviceTestResultCheckBox->setCheckState(Qt::Unchecked);
-    connect(serviceTestResultCheckBox, &QCheckBox::stateChanged, this, [this](int state){
-        if (chartView == nullptr) return ;
-        if (Qt::Checked != state) {
-            chartView->hide();
-        } else {
-            chartView->show();
-        }
-    });
-
     UDSResponseParseCheckBox = new QCheckBox("UDS协议解析");
     UDSResponseParseCheckBox->setToolTip("自动解析UDS应答数据");
     infoShowLayout->addWidget(UDSResponseParseCheckBox);
@@ -1488,7 +1349,6 @@ QWidget *UDS::UDSOperationConfigWidget()
         }
         udsViewSetColumnHidden(true);
     });
-
     serviceSetclearBtn = new QPushButton("清除列表");
     serviceSetclearBtn->setIcon(QIcon(":/icon/clear.png"));
     infoShowLayout->addWidget(serviceSetclearBtn);
@@ -1510,11 +1370,1271 @@ QWidget *UDS::UDSOperationConfigWidget()
         }
         serviceListReset(serviceSetModel);
     });
+    infoShowLayout->addStretch();
+    udsOpInfoLayout->addStretch();
+    udsProjectLayout->addStretch();
+    mainLayout->addStretch();
 
     return mainWidget;
 }
 
-bool UDS::saveServiceSet(QString filename)
+QWidget *UDS::uiConfigWidget()
+{
+    QWidget *mainWidget = new QWidget();
+    QVBoxLayout *mainWidgetLayout = new QVBoxLayout();
+    QHBoxLayout *mainLayout = new QHBoxLayout();
+    mainWidgetLayout->addLayout(mainLayout);
+    mainWidget->setLayout(mainWidgetLayout);
+
+    UDSDescolumnCheckBox = new QCheckBox("备注");
+    mainLayout->addWidget(UDSDescolumnCheckBox);
+    UDSDescolumnCheckBox->setCheckState(Qt::Checked);
+    connect(UDSDescolumnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewRemarkColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewRemarkColumn, true);
+        }
+    });
+
+    SendBtnCheckBox = new QCheckBox("发送");
+    mainLayout->addWidget(SendBtnCheckBox);
+    SendBtnCheckBox->setCheckState(Qt::Checked);
+    connect(SendBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewSendBtnColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewSendBtnColumn, true);
+        }
+    });
+
+    ConfigBtnCheckBox = new QCheckBox("配置");
+    mainLayout->addWidget(ConfigBtnCheckBox);
+    ConfigBtnCheckBox->setCheckState(Qt::Checked);
+    connect(ConfigBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewConfigBtnColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewConfigBtnColumn, true);
+        }
+    });
+
+    UpBtnCheckBox = new QCheckBox("上移");
+    mainLayout->addWidget(UpBtnCheckBox);
+    UpBtnCheckBox->setCheckState(Qt::Checked);
+    connect(UpBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewUpBtnColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewUpBtnColumn, true);
+        }
+    });
+
+    DownBtnCheckBox = new QCheckBox("下移");
+    mainLayout->addWidget(DownBtnCheckBox);
+    DownBtnCheckBox->setCheckState(Qt::Checked);
+    connect(DownBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewDownBtnColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewDownBtnColumn, true);
+        }
+    });
+
+    DelBtnCheckBox = new QCheckBox("删除");
+    mainLayout->addWidget(DelBtnCheckBox);
+    DelBtnCheckBox->setCheckState(Qt::Checked);
+    connect(DelBtnCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (serviceSetView == nullptr) return ;
+        if (Qt::Checked == state) {
+            serviceSetView->setColumnHidden(udsViewDelBtnColumn, false);
+        } else {
+            serviceSetView->setColumnHidden(udsViewDelBtnColumn, true);
+        }
+    });
+
+    serviceTestResultCheckBox = new QCheckBox("图表统计");
+    mainLayout->addWidget(serviceTestResultCheckBox);
+    serviceTestResultCheckBox->setCheckState(Qt::Unchecked);
+#ifdef __HAVE_CHARTS__
+    connect(serviceTestResultCheckBox, &QCheckBox::stateChanged, this, [this](int state){
+        if (chartView == nullptr) return ;
+        if (Qt::Checked != state) {
+            chartView->hide();
+        } else {
+            chartView->show();
+        }
+    });
+#endif /* __HAVE_CHARTS__ */
+    mainLayout->addStretch();
+    mainWidgetLayout->addStretch();
+
+    return mainWidget;
+}
+
+QWidget *UDS::serviceGeneralConfigWidget()
+{
+    QWidget *mainWidget = new QWidget();
+    QVBoxLayout *mainWidgetLayout = new QVBoxLayout();
+    QHBoxLayout *mainLayout = new QHBoxLayout();
+    mainWidgetLayout->addLayout(mainLayout);
+    mainWidget->setLayout(mainWidgetLayout);
+    mainLayout->addWidget(new QLabel("36传输字节:"));
+    transfer36MaxlenEdit = new QLineEdit();
+    transfer36MaxlenEdit->setValidator(new QIntValidator(0, 100000, transfer36MaxlenEdit));
+    transfer36MaxlenEdit->setMaximumWidth(60);
+    mainLayout->addWidget(transfer36MaxlenEdit);
+    connect(transfer36MaxlenEdit, &QLineEdit::textChanged, this, [this](const QString &text){
+        transfer36Maxlen = text.toUInt();
+    });
+
+    QCheckBox *enable3e = new QCheckBox("TesterPresent(3E)");
+    mainLayout->addWidget(enable3e);
+    connect(enable3e, &QCheckBox::stateChanged, this, [this](int state){
+        if (cycle3eTimer == nullptr || cycle3eEdit == nullptr) return ;
+        if (Qt::Checked == state) {
+            if (cycle3eEdit->text().size() == 0) {
+                cycle3eEdit->setText("2000");
+            }
+            cycle3eTimer->setInterval(cycle3eEdit->text().toUInt());
+            cycle3eTimer->start();
+            cycle3eEdit->setEnabled(false);
+        } else {
+            cycle3eTimer->stop();
+            cycle3eEdit->setEnabled(true);
+        }
+    });
+    mainLayout->addWidget(new QLabel("发送周期(ms):"));
+    cycle3eEdit = new QLineEdit();
+    cycle3eEdit->setValidator(new QIntValidator(0, 100000, cycleNumberEdit));
+    cycle3eEdit->setMaximumWidth(40);
+    cycle3eEdit->setText("2000");
+    mainLayout->addWidget(cycle3eEdit);
+
+    mainLayout->addWidget(new QLabel("源地址:"));
+    saAdress3eEdit = new QLineEdit();
+    saAdress3eEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
+    saAdress3eEdit->setMaximumWidth(70);
+    mainLayout->addWidget(saAdress3eEdit);
+
+    mainLayout->addWidget(new QLabel("目的地址:"));
+    taAdress3eEdit = new QLineEdit();
+    taAdress3eEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{8}$"), this));
+    taAdress3eEdit->setMaximumWidth(70);
+    mainLayout->addWidget(taAdress3eEdit);
+
+    suppress3eCheckBox = new QCheckBox("抑制响应");
+    mainLayout->addWidget(suppress3eCheckBox);
+    suppress3eCheckBox->setCheckState(Qt::Checked);
+
+    fixCycle3eCheckBox = new QCheckBox("固定周期");
+    mainLayout->addWidget(fixCycle3eCheckBox);
+    fixCycle3eCheckBox->setCheckState(Qt::Checked);
+
+    cycle3eTimer = new QTimer();
+    connect(cycle3eTimer, &QTimer::timeout, this, [this]{
+        bool isspuress = suppress3eCheckBox->checkState() == Qt::Checked ? true :false;
+        quint32 ta = taAdress3eEdit->text().toUInt(nullptr, 16);
+        quint32 sa = taAdress3eEdit->text().toUInt(nullptr, 16);
+        char msg[] = {0x3e, 0x00};
+        if (isspuress) {
+            msg[1] = 0x80;
+        }
+        if (ta == 0) return ;
+
+        if (doipDiagCheckBox->checkState() == Qt::Checked) {
+            if (doipServerListBox->currentText().size() > 0) {
+                DoipClientConnect *conn = doipConnMap.find(doipServerListBox->currentText()).value();
+                if (conn) {
+                    conn->diagnosisRequest(msg, sizeof(msg), ta, isspuress, 0);
+                }
+            }
+        } else if (canDiagCheckBox->checkState() == Qt::Checked){
+            if (can) {
+                can->sendRequest(msg, sizeof(msg), sa, ta, isspuress, 0);
+            }
+        } else {
+            adbDiagRequest(msg, sizeof(msg), ta, isspuress, 0);
+        }
+    });
+    mainLayout->addStretch();
+    mainWidgetLayout->addStretch();
+
+    return mainWidget;
+}
+
+QWidget *UDS::serviceConfigWidget()
+{
+    QWidget *configWidget = new QWidget();
+    configWidget->setAttribute(Qt::WA_QuitOnClose, false);
+    QVBoxLayout *configMainLayout = new QVBoxLayout();
+
+    configWidget->setWindowIcon(QIcon(":/icon/reset.png"));
+    configWidget->setWindowTitle("诊断项配置");
+
+    configWidget->setStyleSheet(".QWidget{background-color: #FFFFFF;}" + btnCommonStyle + comboxCommonStyle);
+
+    udsRequestConfigBtn = new QPushButton("诊断服务添加至列表");
+    udsRequestConfigBtn->setIcon(QIcon(":/icon/addList.png"));
+    configMainLayout->addWidget(udsRequestConfigBtn);
+    udsRequestConfigBtn->setStyleSheet(pushButtonStyle);
+
+    QGroupBox *UDSRequestBox = new QGroupBox("服务请求规则");
+    QVBoxLayout *UDSRequestLayout = new QVBoxLayout();
+    QVBoxLayout *requestServiceConfigLayout = new QVBoxLayout();
+    UDSRequestBox->setLayout(UDSRequestLayout);
+    UDSRequestLayout->addLayout(requestServiceConfigLayout);
+    configMainLayout->addWidget(UDSRequestBox);
+    configWidget->setLayout(configMainLayout);
+
+    QGridLayout *serviceParamLayout = new QGridLayout();
+    requestServiceConfigLayout->addLayout(serviceParamLayout);
+
+    serviceParamLayout->addWidget(new QLabel("服务ID:"), 0, 0, 1, 1);
+    serviceListBox = new QComboBox();
+    serviceListBox->setFixedWidth(300);
+    serviceEidt = new QLineEdit();
+    serviceEidt->setFixedWidth(30);
+    serviceEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
+    for (quint8 sid = 0; sid < 0xff; sid++) {
+        if (serviceDescMap.contains(sid)) {
+            serviceListBox->addItem(serviceDescMap[sid]);
+        }
+    }
+    serviceParamLayout->addWidget(serviceListBox, 0, 1, 1, 3);
+    serviceParamLayout->addWidget(serviceEidt, 0, 4, 1, 1);
+
+    serviceParamLayout->addWidget(new QLabel("子功能:"), 1, 0, 1, 1);
+    serviceSubListBox = new QComboBox();
+    serviceSubListBox->setFixedWidth(300);
+    serviceParamLayout->addWidget(serviceSubListBox, 1, 1, 1, 3);
+    serviceSubEidt = new QLineEdit();
+    serviceSubEidt->setFixedWidth(30);
+    serviceParamLayout->addWidget(serviceSubEidt, 1, 4, 1, 1);
+    serviceSubEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
+
+    //QGridLayout *otherParamLayout = new QGridLayout();
+    //requestServiceConfigLayout->addLayout(otherParamLayout);
+
+    serviceParamLayout->addWidget(new QLabel("数据标识符:"), 2, 0);
+    serviceDidEidt = new QLineEdit();
+    serviceDidEidt->setFixedWidth(60);
+    serviceParamLayout->addWidget(serviceDidEidt, 2, 1);
+    serviceDidEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
+
+    serviceParamLayout->addWidget(new QLabel("目的地址:"), 2, 2);
+    serviceTaEdit = new QLineEdit();
+    serviceTaEdit->setFixedWidth(60);
+    serviceParamLayout->addWidget(serviceTaEdit, 2, 3);
+    serviceTaEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
+
+    serviceAddrType = new QComboBox();
+    serviceAddrType->addItems(QStringList() << "physical address" << "function address");
+    serviceParamLayout->addWidget(serviceAddrType, 2, 4);
+
+    serviceParamLayout->addWidget(new QLabel("超时时间(ms):"), 3, 0);
+    serviceTimeoutEdit = new QLineEdit();
+    serviceTimeoutEdit->setFixedWidth(60);
+    serviceParamLayout->addWidget(serviceTimeoutEdit, 3, 1);
+    serviceTimeoutEdit->setValidator(new QIntValidator(0, 10000, serviceTimeoutEdit));
+
+    serviceParamLayout->addWidget(new QLabel("延时时间(ms):"), 3, 2);
+    serviceDelayEdit = new QLineEdit();
+    serviceDelayEdit->setFixedWidth(60);
+    serviceParamLayout->addWidget(serviceDelayEdit, 3, 3);
+    serviceDelayEdit->setValidator(new QIntValidator(0, 100000, serviceDelayEdit));
+
+    serviceSuppressCheck = new QCheckBox("抑制响应");
+    serviceParamLayout->addWidget(serviceSuppressCheck, 3, 4);
+    connect(serviceSuppressCheck, &QCheckBox::stateChanged, this, [this](int state) {
+        if (state == Qt::Checked) {
+            serviceTimeoutEdit->setText("200");
+        }
+    });
+
+    fileTransferWidget = requestFileTransferWidget();
+    requestServiceConfigLayout->addWidget(fileTransferWidget);
+    securityWidget = securityAccessWidget();
+    requestServiceConfigLayout->addWidget(securityWidget);
+
+    diagReqMsgEdit = new QPlainTextEdit();
+    requestServiceConfigLayout->addWidget(diagReqMsgEdit);
+
+    QHBoxLayout *msgSetLayout = new QHBoxLayout();
+    UDSRequestLayout->addLayout(msgSetLayout);
+    msgSetLayout->addWidget(new QLabel("字符(HEX):"));
+    QLineEdit *diagRandCharEdit = new QLineEdit();
+    diagRandCharEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
+    diagRandCharEdit->setMaximumWidth(30);
+    msgSetLayout->addWidget(diagRandCharEdit);
+    msgSetLayout->addStretch();
+
+    msgSetLayout->addWidget(new QLabel("长度(byte):"));
+    QLineEdit *diagRandMsgLenEdit = new QLineEdit();
+    diagRandMsgLenEdit->setValidator(new QRegExpValidator(QRegExp("^[0-9]{5}$"), this));
+    diagRandMsgLenEdit->setMaximumWidth(50);
+    msgSetLayout->addWidget(diagRandMsgLenEdit);
+
+    QPushButton *diagRandMsgBtn = new QPushButton("生成");
+    diagRandMsgBtn->setIcon(QIcon(":/icon/generate.png"));
+    msgSetLayout->addWidget(diagRandMsgBtn);
+
+    QPushButton *diagCleanBtn = new QPushButton("清除");
+    diagCleanBtn->setIcon(QIcon(":/icon/empty.png"));
+    msgSetLayout->addWidget(diagCleanBtn);
+
+    QLabel *diagMsgLen = new QLabel("0/byte");
+    diagMsgLen->setFixedWidth(60);
+    msgSetLayout->addWidget(diagMsgLen);
+
+    connect(diagCleanBtn, &QPushButton::clicked, this, [this, diagMsgLen] {
+        diagReqMsgEdit->clear();
+        diagMsgLen->setText("0/byte");
+    });
+
+    connect(diagRandMsgBtn, &QPushButton::clicked, this, [this, diagRandMsgLenEdit, diagRandCharEdit] {
+        QString randMsg;
+
+        if (diagRandCharEdit->text().size() == 1) {
+            diagRandCharEdit->setText("0" + diagRandCharEdit->text());
+        }
+        randMsg.append(diagReqMsgEdit->toPlainText());
+        for (int n = 0; n < diagRandMsgLenEdit->text().toInt(); n++) {
+            if (diagRandCharEdit->text().size() == 0) {
+                randMsg.append(QString(QByteArray(1, qrand() % (0xff + 1)).toHex()));
+            }
+            else {
+                randMsg.append(diagRandCharEdit->text());
+            }
+        }
+        diagReqMsgEdit->setPlainText(randMsg);
+    });
+    diagReqMsgEdit->setMaximumHeight(40);
+    connect(diagReqMsgEdit, &QPlainTextEdit::textChanged, this, [this, diagMsgLen]{
+        QString editText = diagReqMsgEdit->toPlainText();
+        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
+        if (regStr.length() != diagReqMsgEdit->toPlainText().length()) {
+            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                diagMsgLen->setText(QString("%1/byte").arg(msg.size()));
+                diagReqMsgEdit->setPlainText(QString(msg.toHex(' ')));
+            }
+            else {
+                diagReqMsgEdit->setPlainText(editText);
+            }
+            diagReqMsgEdit->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+        }
+        else {
+            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
+                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                    diagMsgLen->setText(QString("%1/byte").arg(msg.size()));
+                    diagReqMsgEdit->setPlainText(QString(msg.toHex(' ')));
+                    diagReqMsgEdit->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+                }
+            }
+        }
+    });
+
+    serviceDesc = new QLineEdit();
+    UDSRequestLayout->addWidget(serviceDesc);
+    serviceDesc->setPlaceholderText("诊断服务描述");
+
+    connect(serviceSubListBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
+        if (serviceDescMap.contains(serviceEidt->text().toInt(nullptr, 16)) &&\
+            serviceSubMap.contains(serviceEidt->text().toInt(nullptr, 16))) {
+            serviceSubEidt->setText(QString(QByteArray(1, serviceSubMap[serviceEidt->text().toInt(nullptr, 16)][text]).toHex()));
+        }
+    });
+    connect(serviceSubEidt, &QLineEdit::textChanged, this, [this](const QString &text){
+        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
+        if (serviceDescMap.contains(serviceEidt->text().toInt(nullptr, 16)) &&\
+            serviceSubDescMap.contains(serviceEidt->text().toInt(nullptr, 16))) {
+            serviceSubListBox->setCurrentText(serviceSubDescMap[serviceEidt->text().toInt(nullptr, 16)][text.toInt(nullptr, 16)]);
+        }
+    });
+    connect(serviceListBox, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        serviceDidEidt->clear();
+        serviceDesc->clear();
+        if (serviceMap.contains(text)) {
+            serviceEidt->setText(QString(QByteArray(1, serviceMap[text]).toHex()));
+            serviceSubListBox->clear();
+            serviceSubEidt->clear();
+            if (serviceMap.contains(text) && serviceSubDescMap.contains(serviceMap[text])) {
+                serviceSubListBox->setEnabled(true);
+                serviceSubEidt->setEnabled(true);
+                for (quint8 sub = 0; sub < 0xff; sub++) {
+                    if (serviceSubDescMap[serviceMap[text]].contains(sub)) {
+                        if (serviceSubDescMap[serviceMap[text]][sub].size()) {
+                            serviceSubListBox->addItem(serviceSubDescMap[serviceMap[text]][sub]);
+                        }
+                    }
+                }
+            }
+            else {
+                serviceSubListBox->setEnabled(false);
+                serviceSubEidt->setEnabled(false);
+            }
+        }
+        if (serviceExpectRespBox) {
+            serviceExpectRespBox->setCurrentText(responseExpectDesc[notSetResponseExpect]);
+        }
+        if (serviceRespPlainText) {
+            serviceRespPlainText->clear();
+            serviceRespPlainText->setPlainText(QString::number(serviceEidt->text().toInt(0, 16) + 0x40, 16));
+        }
+        if (serviceConfigWidgetRefreshTimer) {
+            serviceConfigWidgetRefreshTimer->setInterval(2);
+            serviceConfigWidgetRefreshTimer->start();
+        }
+    });
+    connect(serviceEidt, &QLineEdit::textChanged, this, [this](const QString &text){
+        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
+        if (serviceDescMap.contains(text.toInt(nullptr, 16))) {
+            serviceListBox->setCurrentText(serviceDescMap[text.toInt(nullptr, 16)]);
+        }
+        if (text.toInt(nullptr, 16) == RequestFileTransfer) {
+            fileTransferWidget->show();
+        } else {
+            fileTransferWidget->hide();
+        }
+        if (text.toInt(nullptr, 16) == SecurityAccess) {
+            securityWidget->show();
+        } else {
+            securityWidget->hide();
+        }
+        if (serviceConfigWidgetRefreshTimer) {
+            serviceConfigWidgetRefreshTimer->setInterval(2);
+            serviceConfigWidgetRefreshTimer->start();
+        }
+    });
+
+    connect(serviceSuppressCheck, &QCheckBox::stateChanged, this, [this](int state){
+        (void)state;
+        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
+    });
+    connect(serviceDidEidt, &QLineEdit::textChanged, this, [this](const QString &text){
+        (void)text;
+        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
+    });
+
+    serviceListBox->setCurrentIndex(1);
+    serviceListBox->setCurrentIndex(0);
+
+    QGroupBox *UDSResponseBox = new QGroupBox("服务响应校验规则");
+    QVBoxLayout *UDSResponseLayout = new QVBoxLayout();
+    QGridLayout *responseServiceConfigLayout = new QGridLayout();
+    UDSResponseBox->setLayout(UDSResponseLayout);
+    UDSResponseLayout->addLayout(responseServiceConfigLayout);
+    configMainLayout->addWidget(UDSResponseBox);
+
+    responseServiceConfigLayout->addWidget(new QLabel("预期响应："), 0, 0);
+    serviceExpectRespBox = new QComboBox();
+    QMap<QString, UDS::serviceResponseExpect>::Iterator it;
+    for (it = responseExpectMap.begin(); it != responseExpectMap.end(); ++it) {
+        serviceExpectRespBox->addItem(it.key());
+    }
+    responseServiceConfigLayout->addWidget(serviceExpectRespBox, 0, 1);
+    serviceExpectRespBox->setCurrentText(responseExpectDesc[notSetResponseExpect]);
+
+    responseServiceConfigLayout->addWidget(new QLabel("消极响应码："), 1, 0);
+    negativeResponseCodeBox = new QComboBox();
+    for (quint8 code = 0; code < 0xff; code++) {
+        if (positiveResponseCodeDesc.contains(code)) {
+            negativeResponseCodeBox->addItem(positiveResponseCodeDesc[code]);
+        }
+    }
+    negativeResponseCodeBox->setEnabled(false);
+    responseServiceConfigLayout->addWidget(negativeResponseCodeBox, 1, 1);
+
+    serviceRespPlainText = new QPlainTextEdit();
+    serviceRespPlainText->setEnabled(false);
+    serviceRespPlainText->setMaximumHeight(40);
+    UDSResponseLayout->addWidget(serviceRespPlainText);
+    connect(serviceRespPlainText, &QPlainTextEdit::textChanged, this, [this]{
+        if (responseExpectMap[serviceExpectRespBox->currentText()] == responseRegexMatch || \
+            responseExpectMap[serviceExpectRespBox->currentText()] == responseRegexMismatch) {
+            return ;
+        }
+
+        QString editText = serviceRespPlainText->toPlainText();
+        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
+        if (regStr.length() != serviceRespPlainText->toPlainText().length()) {
+            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                serviceRespPlainText->setPlainText(QString(msg.toHex(' ')));
+            }
+            else {
+                serviceRespPlainText->setPlainText(editText);
+            }
+            serviceRespPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+        }
+        else {
+            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
+                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                    serviceRespPlainText->setPlainText(QString(msg.toHex(' ')));
+                    serviceRespPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+                }
+            }
+        }
+    });
+    connect(serviceExpectRespBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
+        serviceRespPlainText->setEnabled(true);
+        serviceRespPlainText->clear();
+        if (responseExpectMap[text] != negativeResponseExpect) {
+            negativeResponseCodeBox->setEnabled(false);
+            if (responseExpectMap[text] == noResponseExpect ||\
+                responseExpectMap[text] == notSetResponseExpect) {
+                serviceRespPlainText->setEnabled(false);
+            }
+        } else {
+            QByteArray expectResponse;
+
+            expectResponse.append(0x7f);
+            expectResponse.append(serviceEidt->text().toUInt(0, 16));
+            expectResponse.append(positiveResponseCodeMap[negativeResponseCodeBox->currentText()]);
+            serviceRespPlainText->setPlainText(expectResponse.toHex(' '));
+            negativeResponseCodeBox->setEnabled(true);
+            serviceRespPlainText->setEnabled(false);
+        }
+    });
+
+    connect(negativeResponseCodeBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
+            QByteArray expectResponse;
+
+            expectResponse.append(0x7f);
+            expectResponse.append(serviceEidt->text().toUInt(0, 16));
+            expectResponse.append(positiveResponseCodeMap[text]);
+            serviceRespPlainText->setPlainText(expectResponse.toHex(' '));
+            negativeResponseCodeBox->setEnabled(true);
+    });
+
+    QGroupBox *UDSFinishBox = new QGroupBox("服务结束规则");
+    QVBoxLayout *UDSFinishLayout = new QVBoxLayout();
+    UDSFinishBox->setLayout(UDSFinishLayout);
+    configMainLayout->addWidget(UDSFinishBox);
+
+    QHBoxLayout *UDSRuleLayout = new QHBoxLayout();
+    UDSFinishLayout->addLayout(UDSRuleLayout);
+
+    UDSRuleLayout->addWidget(new QLabel("结束条件:"));
+    UDSConditionRuleComboBox = new QComboBox();
+    UDSConditionRuleComboBox->addItems(QStringList() << "default setting" << "equal to" << "unequal to" << "regex match" << "regex mismatch");
+    UDSConditionMap.insert("default setting", UDSFinishDefaultSetting);
+    UDSConditionMap.insert("equal to", UDSFinishEqualTo);
+    UDSConditionMap.insert("unequal to", UDSFinishUnEqualTo);
+    UDSConditionMap.insert("regex match", UDSFinishRegexMatch);
+    UDSConditionMap.insert("regex mismatch", UDSFinishRegexMismatch);
+    UDSConditionMap.insert("regular expression matching", UDSFinishRegularExpressionMatch);
+    UDSRuleLayout->addWidget(UDSConditionRuleComboBox);
+    UDSRuleLayout->addStretch();
+
+    UDSRuleLayout->addWidget(new QLabel("允许最大重复次数:"));
+    UDSFinishRuleEdit = new QLineEdit();
+    UDSFinishRuleEdit->setValidator(new QRegExpValidator(QRegExp("^[0-9]{10}$"), this));
+    UDSFinishRuleEdit->setMaximumWidth(100);
+    UDSRuleLayout->addWidget(UDSFinishRuleEdit);
+    UDSRuleLayout->addWidget(new QLabel(QString("<font color = red>※防止无限循环</font>")));
+
+    UDSFinishPlainText = new QPlainTextEdit();
+    UDSFinishLayout->addWidget(UDSFinishPlainText);
+    UDSFinishPlainText->setEnabled(false);
+    UDSFinishPlainText->setMaximumHeight(40);
+    UDSFinishLayout->addWidget(UDSFinishPlainText);
+    connect(UDSFinishPlainText, &QPlainTextEdit::textChanged, this, [this]{
+        if (UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegularExpressionMatch || \
+            UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegexMatch ||\
+            UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegexMismatch) {
+            return ;
+        }
+
+        QString editText = UDSFinishPlainText->toPlainText();
+        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
+        if (regStr.length() != UDSFinishPlainText->toPlainText().length()) {
+            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                UDSFinishPlainText->setPlainText(QString(msg.toHex(' ')));
+            }
+            else {
+                UDSFinishPlainText->setPlainText(editText);
+            }
+            UDSFinishPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+        }
+        else {
+            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
+                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
+                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
+                    UDSFinishPlainText->setPlainText(QString(msg.toHex(' ')));
+                    UDSFinishPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
+                }
+            }
+        }
+    });
+
+    connect(UDSConditionRuleComboBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
+        if (UDSConditionMap[text] != UDSFinishDefaultSetting) {
+            UDSFinishPlainText->setEnabled(true);
+        } else {
+            UDSFinishPlainText->setEnabled(false);
+        }
+    });
+
+    connect(udsRequestConfigBtn, &QPushButton::clicked, this, [this]{
+        serviceItem data;
+
+        if (!diagReqMsgEdit->toPlainText().size()) {
+            return ;
+        }
+        QString dataString = widgetConfigToString();
+        data = serviceItemDataDecode(dataString);
+        if (data.timeout == 0) {serviceTimeoutEdit->setText("2000");}
+        serviceDelayEdit->setText(QString("%1").arg(data.delay));
+        if (data.ta == 0) {
+            QString doipName = doipServerListBox->currentText();
+            if (doipConnMap.contains(doipName)) {
+                DoipClientConnect *conn = doipConnMap.find(doipName).value();
+                if (conn) {
+                    serviceTaEdit->setText(QString::number(conn->getLogicTargetAddress(), 16));
+                }
+            }
+        }
+        dataString = widgetConfigToString();
+        data = serviceItemDataDecode(dataString);
+        if (!(modifyRowIndex < 0)) {
+            modifyServiceItem(modifyRowIndex, data);
+            modifyRowIndex = -1;
+            serviceSetWidget->close();
+        }
+        else {
+            addServiceItem(data);
+        }
+    });
+    serviceConfigWidgetRefreshTimer = new QTimer();
+    connect(serviceConfigWidgetRefreshTimer, &QTimer::timeout, this, [this]{
+        serviceConfigWidgetRefreshTimer->stop();
+        if (serviceSetWidget) {
+            serviceSetWidget->resize(1, 1);
+        }
+    });
+
+    return configWidget;
+}
+
+QWidget *UDS::requestFileTransferWidget()
+{
+    QWidget *mainWidget = new QWidget();
+    QGridLayout *mainLayout = new QGridLayout();
+    mainWidget->setLayout(mainLayout);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    FileSelect *fileSelectWidget = new FileSelect();
+
+    mainLayout->addWidget(new QLabel("操作方式:"), 0, 0);
+    modeOfOperationComBox = new QComboBox();
+    modeOfOperationComBox->addItems(QStringList() \
+                                    << "AddFile(0x01)" \
+                                    << "DeleteFile(0x02)"\
+                                    << "ReplaceFile(0x03)" \
+                                    << "ReadFile(0x04)" \
+                                    << "ReadDir(0x05)");
+    mainLayout->addWidget(modeOfOperationComBox, 0, 1);
+    modeOfOperationMap["AddFile(0x01)"] = AddFile;
+    modeOfOperationMap["DeleteFile(0x02)"] = DeleteFile;
+    modeOfOperationMap["ReplaceFile(0x03)"] = ReplaceFile;
+    modeOfOperationMap["ReadFile(0x04)"] = ReadFile;
+    modeOfOperationMap["ReadDir(0x05)"] = ReadDir;
+
+    modeOfOperationDescMap[AddFile] = "AddFile(0x01)";
+    modeOfOperationDescMap[DeleteFile] = "DeleteFile(0x02)";
+    modeOfOperationDescMap[ReplaceFile] = "ReplaceFile(0x03)";
+    modeOfOperationDescMap[ReadFile] = "ReadFile(0x04)";
+    modeOfOperationDescMap[ReadDir] = "ReadDir(0x05)";
+
+    mainLayout->addWidget(new QLabel("文件路径和文件名长度:"), 0, 2);
+    filePathAndNameLengthEdit = new QLineEdit();
+    mainLayout->addWidget(filePathAndNameLengthEdit, 0, 3);
+
+    mainLayout->addWidget(new QLabel("文件路径和文件名:"), 1, 0);
+    filePathAndNameEdit = new QLineEdit();
+    mainLayout->addWidget(filePathAndNameEdit, 1, 1, 1, 3);
+
+    QPushButton *fileSelect = new QPushButton("选择传输文件");
+    fileSelect->setIcon(QIcon(":/icon/file.png"));
+    //mainLayout->addWidget(fileSelect, 1, 3);
+
+    mainLayout->addWidget(new QLabel("数据格式标识符:"), 2, 0);
+    dataFormatIdentifierEdit = new QLineEdit();
+    mainLayout->addWidget(dataFormatIdentifierEdit, 2, 1);
+
+    mainLayout->addWidget(new QLabel("文件大小参数长度:"), 2, 2);
+    fileSizeParameterLengthEdit = new QLineEdit();
+    mainLayout->addWidget(fileSizeParameterLengthEdit, 2, 3);
+
+    mainLayout->addWidget(new QLabel("未压缩文件大小:"), 3, 0);
+    fileSizeUnCompressedEdit = new QLineEdit();
+    mainLayout->addWidget(fileSizeUnCompressedEdit, 3, 1);
+
+    mainLayout->addWidget(new QLabel("压缩文件大小:"), 3, 2);
+    fileSizeCompressedEdit = new QLineEdit();
+    mainLayout->addWidget(fileSizeCompressedEdit, 3, 3);
+
+    mainLayout->addWidget(new QLabel("MD5:"), 4, 0);
+    QLineEdit *fileMd5Edit = new QLineEdit();
+    mainLayout->addWidget(fileMd5Edit, 4, 1, 1, 2);
+
+    QCheckBox *md5Check = new QCheckBox("计算文件MD5");
+    mainLayout->addWidget(md5Check, 4, 3);
+
+    mainLayout->addWidget(fileSelectWidget, 5, 0, 1, 4);
+
+    connect(fileSelectWidget, &FileSelect::fileChange, this, [this, fileMd5Edit, md5Check](QString fileName){
+        localFilePath = fileName;
+        QFileInfo fileInfo(fileName);
+        QFile file(fileName);
+
+        fileTransferPath = fileInfo.path();
+        switch (QMessageBox::information(0, tr("确认文件"), tr(QString("再次确认是否使用(%1)?").arg(fileName).toStdString().c_str()), tr("是"), tr("否"), 0, 1 )) {
+          case 0: break;
+          case 1: default: return ; break;
+        }
+
+        if (QFileInfo(servicetransferFileDir + fileInfo.fileName()).exists()) {
+            switch (QMessageBox::information(0, tr("加载传输文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
+              case 0: break;
+              case 1: default:return;break;
+            }
+        }
+        if (file.copy(servicetransferFileDir + fileInfo.fileName())) {
+            localFilePath = fileInfo.fileName();
+        }
+        fileSizeCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
+        fileSizeUnCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
+        fileSizeParameterLengthEdit->setText("4");
+        dataFormatIdentifierEdit->setText("0");
+        filePathAndNameEdit->clear();
+        filePathAndNameEdit->setText(fileInfo.fileName());
+        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
+
+        if (md5Check->checkState() == Qt::Checked) {
+            if (file.size() > 100 * 1024 * 1024) {
+                switch (QMessageBox::information(0, tr("MD5计算"), tr("文件较大计算MD5耗时较长是否继续?"), tr("是"), tr("否"), 0, 1 )) {
+                  case 0: break;
+                  case 1: default: return ; break;
+                }
+            }
+            QFile theFile(fileName);
+            theFile.open(QIODevice::ReadOnly);
+            QByteArray ba = QCryptographicHash::hash(theFile.readAll(), QCryptographicHash::Md5);
+            theFile.close();
+            fileMd5Edit->setText(ba.toHex().constData());
+            QClipboard *clipboard = QApplication::clipboard();
+            clipboard->setText(fileMd5Edit->text());
+        }
+    });
+
+    connect(fileSelect, &QPushButton::clicked, this, [this, mainWidget, fileMd5Edit, md5Check]{
+        QString fileName = QFileDialog::getOpenFileName(mainWidget, "选择文件", \
+                             fileTransferPath.size() == 0 ? "C:\\Users\\Administrator\\Desktop" : fileTransferPath);
+        if (fileName.size() == 0) { return ; }
+        localFilePath = fileName;
+        QFileInfo fileInfo(fileName);
+        QFile file(fileName);
+
+        fileTransferPath = fileInfo.path();
+        switch (QMessageBox::information(0, tr("确认文件"), tr(QString("再次确认是否使用(%1)?").arg(fileName).toStdString().c_str()), tr("是"), tr("否"), 0, 1 )) {
+          case 0: break;
+          case 1: default: return ; break;
+        }
+
+        if (QFileInfo(servicetransferFileDir + fileInfo.fileName()).exists()) {
+            switch (QMessageBox::information(mainWidget, tr("加载传输文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
+              case 0: break;
+              case 1: default:return;break;
+            }
+        }
+        if (file.copy(servicetransferFileDir + fileInfo.fileName())) {
+            localFilePath = fileInfo.fileName();
+        }
+        fileSizeCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
+        fileSizeUnCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
+        fileSizeParameterLengthEdit->setText("4");
+        dataFormatIdentifierEdit->setText("0");
+        filePathAndNameEdit->setText(fileInfo.fileName());
+        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
+
+        if (md5Check->checkState() == Qt::Checked) {
+            QFile theFile(fileName);
+            theFile.open(QIODevice::ReadOnly);
+            QByteArray ba = QCryptographicHash::hash(theFile.readAll(), QCryptographicHash::Md5);
+            theFile.close();
+            fileMd5Edit->setText(ba.toHex().constData());
+            QClipboard *clipboard = QApplication::clipboard();
+            clipboard->setText(fileMd5Edit->text());
+        }
+    });
+
+    connect(filePathAndNameEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        Q_UNUSED(text);
+        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
+        QString dataString = widgetConfigToString();
+        serviceItem data = serviceItemDataDecode(dataString);
+        QByteArray msg = getRequestFileTransferMessage(data);
+        diagReqMsgEdit->setPlainText(msg.toHex(' '));
+    });
+
+    return mainWidget;
+}
+
+QWidget *UDS::securityAccessWidget()
+{
+    QWidget *mainWidget = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout();
+    QHBoxLayout *saConfigLayout = new QHBoxLayout();
+    mainLayout->addLayout(saConfigLayout);
+    mainLayout->addWidget(new QLabel(QString("<font color = red>※支持工具自定义, ZLG, CANoe dll文件格式</font>")));
+    mainWidget->setLayout(mainLayout);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    SecurityAccessComBox = new QComboBox();
+    SecurityAccessComBox->addItem("Default");
+    QLabel *selectLabel = new QLabel("27服务算法dll文件选择:");
+    selectLabel->setMaximumWidth(130);
+    saConfigLayout->addWidget(selectLabel);
+    saConfigLayout->addWidget(SecurityAccessComBox);
+
+    QDir dir(securityDllDir);
+    if (!dir.exists()) {
+        dir.mkdir(securityDllDir);
+    }
+    QFileInfoList list = dir.entryInfoList();
+    dir.setNameFilters(QStringList() << "*.dll");
+    foreach(QFileInfo fileinfo, list) {
+        if (fileinfo.completeSuffix() == "dll") {
+            SecurityAccessComBox->addItem(fileinfo.fileName().remove(".dll"));
+        }
+    }
+
+    QPushButton *fileSelect = new QPushButton("加载算法文件");
+    fileSelect->setMaximumWidth(100);
+    fileSelect->setIcon(QIcon(":/icon/file.png"));
+    saConfigLayout->addWidget(fileSelect);
+    connect(fileSelect, &QPushButton::clicked, this, [this, mainWidget]{
+        QString fileName = QFileDialog::getOpenFileName(mainWidget, "加载算法文件", "C:\\Users\\Administrator\\Desktop", tr("dll (*.dll)"));
+        if (!fileName.size()) {
+            return ;
+        }
+
+        QLibrary lib(fileName);
+        if(!lib.load()) {
+            qDebug() << __FUNCTION__ << "security_access_generate_key" << "load err";
+            return ;
+        }
+        if (lib.resolve("security_access_generate_key") == nullptr &&\
+            lib.resolve("ZLGKey") == nullptr && \
+            lib.resolve("GenerateKeyEx") == nullptr) {
+            lib.unload();
+            qDebug() << __FUNCTION__ << "security_access_generate_key is null";
+            QMessageBox::warning(mainWidget, tr("加载算法文件"), tr("dll算法文件格式不兼容，无法使用"));
+            return ;
+        }
+        lib.unload();
+
+        QFileInfo fileInfo(fileName);
+        QString destFilePath = securityDllDir + fileInfo.fileName();
+        if (QFileInfo(destFilePath).exists()) {
+            switch (QMessageBox::information(mainWidget, tr("加载算法文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
+              case 0: break;
+              case 1: default:return;break;
+            }
+        }
+        QFile::copy(fileName, destFilePath);
+
+        SecurityAccessComBox->clear();
+        SecurityAccessComBox->addItem("Default");
+        QDir dir(securityDllDir);
+        QFileInfoList list = dir.entryInfoList();
+        dir.setNameFilters(QStringList() << "*.dll");
+        foreach(QFileInfo fileinfo, list) {
+            if (fileinfo.completeSuffix() == "dll") {
+                SecurityAccessComBox->addItem(fileinfo.fileName().remove(".dll"));
+                qDebug() << fileinfo.fileName();
+            }
+        }
+    });
+
+
+    return mainWidget;
+}
+
+QWidget *UDS::serviceProjectListWidget()
+{
+    QWidget *mainWidget = new QWidget();
+    mainWidget->setStyleSheet(btnCommonStyle);
+
+    projectListTimer = new QTimer(this);
+
+    QVBoxLayout *projectNameLayout = new QVBoxLayout();
+    mainWidget->setLayout(projectNameLayout);
+
+    projectNameListComBox = new QComboBox();
+    projectNameListComBox->setEditable(true);
+    projectNameLayout->addWidget(projectNameListComBox);
+
+    QHBoxLayout *sldBtnLayout = new QHBoxLayout();
+    projectNameLayout->addLayout(sldBtnLayout);
+    QPushButton *saveprojectNameListWidgetBtn = new QPushButton("保存");
+    saveprojectNameListWidgetBtn->setIcon(QIcon(":/icon/save.png"));
+    sldBtnLayout->addWidget(saveprojectNameListWidgetBtn);
+
+    QPushButton *loadprojectNameListWidgetBtn = new QPushButton("加载");
+    loadprojectNameListWidgetBtn->setIcon(QIcon(":/icon/load.png"));
+    sldBtnLayout->addWidget(loadprojectNameListWidgetBtn);
+
+    QPushButton *deleteprojectNameListWidgetBtn = new QPushButton("删除");
+    deleteprojectNameListWidgetBtn->setIcon(QIcon(":/icon/delete.png"));
+    sldBtnLayout->addWidget(deleteprojectNameListWidgetBtn);
+
+    QDir dir(serviceProjectListConfigDir);
+    if (!dir.exists()) {
+        dir.mkdir(serviceProjectListConfigDir);
+    }
+    QFileInfoList list = dir.entryInfoList();
+    dir.setNameFilters(QStringList() << "*.json");
+    projectNameListComBox->clear();
+    foreach(QFileInfo fileinfo, list) {
+        if (fileinfo.completeSuffix() == "json") {
+            projectNameListComBox->addItem(fileinfo.fileName());
+        }
+    }
+    connect(saveprojectNameListWidgetBtn, &QPushButton::clicked, this, [this, saveprojectNameListWidgetBtn]{
+        if (serviceActive()) {
+            promptForAction(QString("<font color = red><测试中无法%1</font>").arg(saveprojectNameListWidgetBtn->text()));
+            return ;
+        }
+        if (projectNameModel->rowCount() == 0) {
+            promptForAction(QString("<font color = red>%1表格中无数据项</font>").arg(saveprojectNameListWidgetBtn->text()));
+            return ;
+        }
+        QString fileName = projectNameListComBox->lineEdit()->text();
+        if (fileName.size() == 0) {
+            promptForAction(QString("<font color = red>%1失败条件文件名长度不能为0</font>").arg(saveprojectNameListWidgetBtn->text()));
+            return ;
+        }
+
+        QFileInfo fileinfo(serviceProjectListConfigDir + "/" + fileName);
+        if (fileinfo.isFile()) {
+            switch (QMessageBox::information(0, tr("覆盖文件"), tr("是否覆盖同名文件?"), tr("是"), tr("否"), 0, 1 )) {
+              case 0: break;
+              case 1: default: return ; break;
+            }
+            fileName =  serviceProjectListConfigDir + "/" + fileName;
+        }
+        else {
+            if (fileName.contains("json")) {
+                promptForAction(QString("<font color = red>%1失败条件不满足(文件名不能包含“json”字符串)</font>")\
+                                .arg(saveprojectNameListWidgetBtn->text()));
+                return ;
+            }
+            fileName =  serviceProjectListConfigDir + "/" + fileName + ".json";
+        }
+
+        QFile file(fileName);
+        file.open(QIODevice::ReadWrite);
+        for (int nn = 0; nn < projectNameModel->rowCount(); nn++) {
+            QJsonObject rootObj;
+            if (projectNameModel->item(nn, 0)) {
+                rootObj.insert("Project", projectNameModel->item(nn, 0)->text());
+            }
+            file.write(QJsonDocument(rootObj).toJson(QJsonDocument::Compact));
+            file.write("\n");
+        }
+        file.close();
+        projectNameListComBox->addItem(fileinfo.fileName());
+        projectNameListComBox->setCurrentText(fileinfo.fileName());
+        promptForAction(QString("<a style='color: rgb(30, 144, 255);' href=\"file:///%1\">保存成功:%2</a>")\
+                        .arg(serviceProjectListConfigDir).arg(fileName));
+    });
+
+    connect(loadprojectNameListWidgetBtn, &QPushButton::clicked, this, [this]{
+        if (serviceActive()) {
+            promptForAction(QString("<font color = red>测试中无法加载</font>"));
+            return ;
+        }
+        if (projectNameListComBox->lineEdit()->text().size() == 0) {
+            return ;
+        }
+        projectNameModel->removeRows(0, projectNameModel->rowCount());
+        QString fileName =  serviceProjectListConfigDir + projectNameListComBox->lineEdit()->text();
+        QFileInfo fileInfo(fileName);
+        if (fileInfo.exists()) {
+            QFile file(fileName);
+            file.open(QIODevice::ReadOnly);
+            QByteArray linedata;
+            do {
+                linedata.clear();
+                linedata = file.readLine();
+                if (linedata.size()) {
+                    QString config = QString(linedata).toUtf8().data();
+                    QJsonParseError err;
+
+                    QJsonObject ProjectObj = QJsonDocument::fromJson(config.toUtf8(), &err).object();
+                    if (err.error)
+                        return ;
+
+                    if (ProjectObj.contains("Project")) {
+                        QList<QStandardItem *> items;
+                        items.append(new QStandardItem(ProjectObj["Project"].toString()));
+                        projectNameModel->appendRow(items);
+                    }
+                }
+            } while (linedata.size() > 0);
+            file.close();
+            promptForAction(QString("<font color = green>加载成功</font>"));
+        }
+    });
+
+    connect(deleteprojectNameListWidgetBtn, &QPushButton::clicked, this, [this]{
+        if (serviceActive()) {
+            promptForAction(QString("<font color = red>测试中无法删除</font>"));
+            return ;
+        }
+
+        if (projectNameListComBox->lineEdit()->text().size() == 0) {
+            return ;
+        }
+
+        switch (QMessageBox::information(0, tr("删除"), tr("确认删除?"), tr("是"), tr("否"), 0, 1 )) {
+          case 0: break;
+          case 1: default: return ; break;
+        }
+        QString fileName =  serviceProjectListConfigDir + projectNameListComBox->lineEdit()->text();
+        QFileInfo fileInfo(fileName);
+        if (fileInfo.exists()) {
+            QFile file(fileName);
+            file.remove();
+            projectNameListComBox->removeItem(projectNameListComBox->currentIndex());
+            promptForAction(QString("<font color = green>删除成功</font>"));
+        }
+    });
+
+    QHBoxLayout *paBtnLayout = new QHBoxLayout();
+    projectNameLayout->addLayout(paBtnLayout);
+    projectNameComBox = new QComboBox();
+    paBtnLayout->addWidget(projectNameComBox);
+
+    QPushButton *addBtn = new QPushButton("添加");
+    addBtn->setIcon(QIcon(":/icon/addList.png"));
+    addBtn->setMaximumWidth(50);
+    paBtnLayout->addWidget(addBtn);
+
+    QHBoxLayout *ssBtnLayout = new QHBoxLayout();
+    projectNameLayout->addLayout(ssBtnLayout);
+    QPushButton *startBtn = new QPushButton("开始");
+    startBtn->setIcon(QIcon(":/icon/testing.png"));
+    ssBtnLayout->addWidget(startBtn);
+
+    QPushButton *stopBtn = new QPushButton("停止");
+    stopBtn->setIcon(QIcon(":/icon/stop.png"));
+    ssBtnLayout->addWidget(stopBtn);
+
+    QPushButton *clearBtn = new QPushButton("清除");
+    clearBtn->setIcon(QIcon(":/icon/clear.png"));
+    ssBtnLayout->addWidget(clearBtn);
+
+    projectNameModel = new QStandardItemModel();
+    projectNameTable = new QTableView();
+    projectNameLayout->addWidget(projectNameTable);
+    projectNameTable->setModel(projectNameModel);
+    projectNameTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    projectNameTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    projectNameTable->setAlternatingRowColors(true);
+    projectNameTable->horizontalHeader()->hide();
+    projectNameTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    projectNameWidgetMenu = new QMenu();
+    QAction *projectSetDelAction = new QAction("删除此项");
+    projectSetDelAction->setIcon(QIcon(":/icon/delete.png"));
+    projectNameWidgetMenu->addAction(projectSetDelAction);
+
+    QAction *projectLoadAction = new QAction("加载此项");
+    projectLoadAction->setIcon(QIcon(":/icon/load.png"));
+    projectNameWidgetMenu->addAction(projectLoadAction);
+
+    QAction *projectSetUpAction = new QAction("上移一行");
+    projectSetUpAction->setIcon(QIcon(":/icon/up.png"));
+    projectNameWidgetMenu->addAction(projectSetUpAction);
+
+    QAction *projectSetDownAction = new QAction("下移一行");
+    projectSetDownAction->setIcon(QIcon(":/icon/down.png"));
+    projectNameWidgetMenu->addAction(projectSetDownAction);
+
+    QAction *projectSetMoveAction = new QAction("移动至行");
+    projectSetMoveAction->setIcon(QIcon(":/icon/move.png"));
+    projectNameWidgetMenu->addAction(projectSetMoveAction);
+
+    QDialog *projectSetMoveDiag = new QDialog();
+    projectSetMoveDiag->setAttribute(Qt::WA_QuitOnClose, false);
+    projectSetMoveDiag->setWindowTitle("移动至行");
+    QHBoxLayout *projectSetMoveDiagLayout = new QHBoxLayout();
+    projectSetMoveDiag->setLayout(projectSetMoveDiagLayout);
+    QLabel *projectSetMoveHint = new QLabel("移动到");
+    projectSetMoveDiagLayout->addWidget(projectSetMoveHint);
+    QLineEdit *projectSetMoveDiagEdit = new QLineEdit();
+    projectSetMoveDiagEdit->setMaximumWidth(40);
+    projectSetMoveDiagEdit->setValidator(new QIntValidator(0, 100000, projectSetMoveDiagEdit));
+    projectSetMoveDiagLayout->addWidget(projectSetMoveDiagEdit);
+    projectSetMoveDiagLayout->addWidget(new QLabel("行"));
+    QPushButton *projectSetMoveDiagConfirmBtn = new QPushButton("确定");
+    projectSetMoveDiagLayout->addWidget(projectSetMoveDiagConfirmBtn);
+    connect(projectSetMoveDiagConfirmBtn, &QPushButton::clicked, this, \
+            [this, projectSetMoveDiag, projectSetMoveDiagEdit] {
+        projectSetMoveDiag->hide();
+        int newRow = projectSetMoveDiagEdit->text().toInt();
+        qDebug() << "newRow:" << newRow << " " << projectNameModel->rowCount();
+        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), newRow - 1);
+
+    });
+
+    connect(projectSetDelAction, &QAction::triggered, this, [this]{
+        switch (QMessageBox::information(0, tr("删除"), tr("确认删除?"), tr("是"), tr("否"), 0, 1 )) {
+          case 0:break;
+          case 1:default: return ; break;
+        }
+        if (projectSetSelectRow < 0 || projectSetSelectRow >= projectNameModel->rowCount()) {
+            return ;
+        }
+        projectNameModel->removeRow(projectSetSelectRow);
+    });
+
+    connect(projectLoadAction, &QAction::triggered, this, [this]{
+        if (projectSetSelectRow < 0 || projectSetSelectRow >= projectNameModel->rowCount()) {
+            return ;
+        }
+        QStandardItem *item = projectNameModel->item(projectSetSelectRow, 0);
+        if (item) {
+            readServiceSet(serviceSetProjectDir + item->text());
+        }
+    });
+
+    connect(projectSetUpAction, &QAction::triggered, this, [this]{
+        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), \
+                           projectNameTable->selectionModel()->currentIndex().row() - 1);
+    });
+
+    connect(projectSetDownAction, &QAction::triggered, this, [this]{
+        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), \
+                           projectNameTable->selectionModel()->currentIndex().row() + 1);
+    });
+
+    connect(projectSetMoveAction, &QAction::triggered, this, [this, projectSetMoveDiag, projectSetMoveHint]{
+        projectSetMoveDiag->hide();
+        projectSetMoveHint->setText(QString("第%1移动到").arg(projectNameTable->selectionModel()->currentIndex().row() + 1));
+        projectSetMoveDiag->show();
+    });
+
+    connect(projectNameTable, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(projectSetContextMenuSlot(QPoint)));
+
+    mainWidget->setMaximumWidth(350);
+
+    connect(addBtn, &QPushButton::clicked, this, [this](){
+        if (projectNameComBox->currentText().size()) {
+            QList<QStandardItem *> items;
+            items.append(new QStandardItem(projectNameComBox->currentText()));
+            projectNameModel->appendRow(items);
+        }
+    });
+
+    connect(startBtn, &QPushButton::clicked, this, [this, startBtn, stopBtn, addBtn, clearBtn](){
+        projectListIndex = -1;
+        abortServiceTask();
+        if (projectNameModel->rowCount() > 0) {
+            projectListIndex = 0;
+        }
+        if (projectListIndex >= 0) {
+            projectListTimer->setInterval(10);
+            projectListTimer->start();
+            startBtn->setEnabled(false);
+            clearBtn->setEnabled(false);
+            stopBtn->setEnabled(true);
+            addBtn->setEnabled(false);
+            for (int index = 0; index < projectNameModel->rowCount(); index++) {
+                if (index % 2) {
+                    setTableItemColor(projectNameModel, index, "#F5F5F5");
+                } else {
+                    setTableItemColor(projectNameModel, index, "#FFFFFF");
+                }
+            }
+            generateTestResultFileName();
+            cycleNumberEdit->setText("0");
+        }
+    });
+
+    connect(clearBtn, &QPushButton::clicked, this, [this](){
+        switch (QMessageBox::information(0, tr("删除"), tr("确认清除列表?"), tr("是"), tr("否"), 0, 1 )) {
+          case 0: break;
+          case 1: default: return ; break;
+        }
+        projectNameModel->removeRows(0, projectNameModel->rowCount());
+    });
+
+    connect(stopBtn, &QPushButton::clicked, this, [this, startBtn, stopBtn, addBtn, clearBtn](){
+        projectListIndex = -1;
+        activeServiceProjectFlicker.isvalid = false;
+        abortServiceTask();
+        projectListTimer->stop();
+        startBtn->setEnabled(true);
+        clearBtn->setEnabled(true);
+        stopBtn->setEnabled(false);
+        addBtn->setEnabled(true);
+        testResultCheckBox->setCheckState(Qt::Unchecked); /* 关闭结果记录，防止误开导致巨大的日志文件 */
+        for (int index = 0; index < projectNameModel->rowCount(); index++) {
+            if (index % 2) {
+                setTableItemColor(projectNameModel, index, "#F5F5F5");
+            } else {
+                setTableItemColor(projectNameModel, index, "#FFFFFF");
+            }
+        }
+    });
+
+    connect(projectListTimer, &QTimer::timeout, this, [this, startBtn, stopBtn, addBtn, clearBtn] {
+        if (!serviceActive() && (projectListIndex < 0 || \
+            projectListIndex >= projectNameModel->rowCount())) {
+            projectListIndex = -1;
+            projectListTimer->stop();
+            startBtn->setEnabled(true);
+            clearBtn->setEnabled(true);
+            stopBtn->setEnabled(false);
+            addBtn->setEnabled(true);
+            activeServiceProjectFlicker.isvalid = false;
+            testResultCheckBox->setCheckState(Qt::Unchecked); /* 关闭结果记录，防止误开导致巨大的日志文件 */
+        } else {
+            if (!serviceActive()) {
+                QStandardItem *item = projectNameModel->item(projectListIndex, 0);
+                if (item) {
+                    projectNameTable->scrollTo(projectNameModel->index(projectListIndex, 0));
+                    QStandardItem *previtem = projectNameModel->item(projectListIndex - 1, 0);
+                    if (!previtem || previtem->text() != item->text()) {
+                        readServiceSet(serviceSetProjectDir + item->text());
+                    }
+                    QList<QStandardItem *> itemList;
+                    itemList.append(item);
+                    setActiveServiceProjectFlicker(itemList);
+                    sendListBtn->click();
+                }
+                //setTableItemColor(projectNameModel, projectListIndex, "#00B2EE");
+                projectNameTable->scrollTo(projectNameModel->index(projectListIndex, 0));
+                projectListIndex++;
+            }
+        }
+    });
+
+    return mainWidget;
+}
+
+bool UDS::saveCurrServiceSet(QString filename)
 {
     QFile file(filename);
 
@@ -1912,690 +3032,7 @@ serviceItem UDS::serviceItemDataDecode(QString &config)
     return data;
 }
 
-QWidget *UDS::serviceConfigWidget()
-{
-    QWidget *configWidget = new QWidget();
-    configWidget->setAttribute(Qt::WA_QuitOnClose, false);
-    QVBoxLayout *configMainLayout = new QVBoxLayout();
 
-    configWidget->setWindowIcon(QIcon(":/icon/reset.png"));
-    configWidget->setWindowTitle("诊断项配置");
-
-    configWidget->setStyleSheet(".QWidget{background-color: #FFFFFF;}" + btnCommonStyle + comboxCommonStyle);
-
-    QGroupBox *UDSRequestBox = new QGroupBox("服务请求规则");
-    QVBoxLayout *UDSRequestLayout = new QVBoxLayout();
-    QVBoxLayout *requestServiceConfigLayout = new QVBoxLayout();
-    UDSRequestBox->setLayout(UDSRequestLayout);
-    UDSRequestLayout->addLayout(requestServiceConfigLayout);
-    configMainLayout->addWidget(UDSRequestBox);
-    configWidget->setLayout(configMainLayout);
-
-    QGridLayout *serviceParamLayout = new QGridLayout();
-    requestServiceConfigLayout->addLayout(serviceParamLayout);
-
-    serviceParamLayout->addWidget(new QLabel("服务ID:"), 0, 0, 1, 1);
-    serviceListBox = new QComboBox();
-    serviceListBox->setFixedWidth(300);
-    serviceEidt = new QLineEdit();
-    serviceEidt->setFixedWidth(30);
-    serviceEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
-    for (quint8 sid = 0; sid < 0xff; sid++) {
-        if (serviceDescMap.contains(sid)) {
-            serviceListBox->addItem(serviceDescMap[sid]);
-        }
-    }
-    serviceParamLayout->addWidget(serviceListBox, 0, 1, 1, 3);
-    serviceParamLayout->addWidget(serviceEidt, 0, 4, 1, 1);
-
-    serviceParamLayout->addWidget(new QLabel("子功能:"), 1, 0, 1, 1);
-    serviceSubListBox = new QComboBox();
-    serviceSubListBox->setFixedWidth(300);
-    serviceParamLayout->addWidget(serviceSubListBox, 1, 1, 1, 3);
-    serviceSubEidt = new QLineEdit();
-    serviceSubEidt->setFixedWidth(30);
-    serviceParamLayout->addWidget(serviceSubEidt, 1, 4, 1, 1);
-    serviceSubEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
-
-    //QGridLayout *otherParamLayout = new QGridLayout();
-    //requestServiceConfigLayout->addLayout(otherParamLayout);
-
-    serviceParamLayout->addWidget(new QLabel("数据标识符:"), 2, 0);
-    serviceDidEidt = new QLineEdit();
-    serviceDidEidt->setFixedWidth(60);
-    serviceParamLayout->addWidget(serviceDidEidt, 2, 1);
-    serviceDidEidt->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
-
-    serviceParamLayout->addWidget(new QLabel("目的地址:"), 2, 2);
-    serviceTaEdit = new QLineEdit();
-    serviceTaEdit->setFixedWidth(60);
-    serviceParamLayout->addWidget(serviceTaEdit, 2, 3);
-    serviceTaEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{4}$"), this));
-
-    serviceAddrType = new QComboBox();
-    serviceAddrType->addItems(QStringList() << "physical address" << "function address");
-    serviceParamLayout->addWidget(serviceAddrType, 2, 4);
-
-    serviceParamLayout->addWidget(new QLabel("超时时间(ms):"), 3, 0);
-    serviceTimeoutEdit = new QLineEdit();
-    serviceTimeoutEdit->setFixedWidth(60);
-    serviceParamLayout->addWidget(serviceTimeoutEdit, 3, 1);
-    serviceTimeoutEdit->setValidator(new QIntValidator(0, 10000, serviceTimeoutEdit));
-
-    serviceParamLayout->addWidget(new QLabel("延时时间(ms):"), 3, 2);
-    serviceDelayEdit = new QLineEdit();
-    serviceDelayEdit->setFixedWidth(60);
-    serviceParamLayout->addWidget(serviceDelayEdit, 3, 3);
-    serviceDelayEdit->setValidator(new QIntValidator(0, 100000, serviceDelayEdit));
-
-    serviceSuppressCheck = new QCheckBox("抑制响应");
-    serviceParamLayout->addWidget(serviceSuppressCheck, 3, 4);
-    connect(serviceSuppressCheck, &QCheckBox::stateChanged, this, [this](int state) {
-        if (state == Qt::Checked) {
-            serviceTimeoutEdit->setText("200");
-        }
-    });
-
-    fileTransferWidget = requestFileTransferWidget();
-    requestServiceConfigLayout->addWidget(fileTransferWidget);
-    securityAccessWidget = SecurityAccessWidget();
-    requestServiceConfigLayout->addWidget(securityAccessWidget);
-
-    diagReqMsgEdit = new QPlainTextEdit();
-    requestServiceConfigLayout->addWidget(diagReqMsgEdit);
-
-    QHBoxLayout *msgSetLayout = new QHBoxLayout();
-    UDSRequestLayout->addLayout(msgSetLayout);
-    msgSetLayout->addWidget(new QLabel("字符(HEX):"));
-    QLineEdit *diagRandCharEdit = new QLineEdit();
-    diagRandCharEdit->setValidator(new QRegExpValidator(QRegExp("^[a-fA-F0-9]{2}$"), this));
-    diagRandCharEdit->setMaximumWidth(30);
-    msgSetLayout->addWidget(diagRandCharEdit);
-    msgSetLayout->addStretch();
-
-    msgSetLayout->addWidget(new QLabel("长度(byte):"));
-    QLineEdit *diagRandMsgLenEdit = new QLineEdit();
-    diagRandMsgLenEdit->setValidator(new QRegExpValidator(QRegExp("^[0-9]{5}$"), this));
-    diagRandMsgLenEdit->setMaximumWidth(50);
-    msgSetLayout->addWidget(diagRandMsgLenEdit);
-
-    QPushButton *diagRandMsgBtn = new QPushButton("生成");
-    diagRandMsgBtn->setIcon(QIcon(":/icon/generate.png"));
-    msgSetLayout->addWidget(diagRandMsgBtn);
-
-    QPushButton *diagCleanBtn = new QPushButton("清除");
-    diagCleanBtn->setIcon(QIcon(":/icon/empty.png"));
-    msgSetLayout->addWidget(diagCleanBtn);
-
-    QLabel *diagMsgLen = new QLabel("0/byte");
-    diagMsgLen->setFixedWidth(60);
-    msgSetLayout->addWidget(diagMsgLen);
-
-    connect(diagCleanBtn, &QPushButton::clicked, this, [this, diagMsgLen] {
-        diagReqMsgEdit->clear();
-        diagMsgLen->setText("0/byte");
-    });
-
-    connect(diagRandMsgBtn, &QPushButton::clicked, this, [this, diagRandMsgLenEdit, diagRandCharEdit] {
-        QString randMsg;
-
-        if (diagRandCharEdit->text().size() == 1) {
-            diagRandCharEdit->setText("0" + diagRandCharEdit->text());
-        }
-        randMsg.append(diagReqMsgEdit->toPlainText());
-        for (int n = 0; n < diagRandMsgLenEdit->text().toInt(); n++) {
-            if (diagRandCharEdit->text().size() == 0) {
-                randMsg.append(QString(QByteArray(1, qrand() % (0xff + 1)).toHex()));
-            }
-            else {
-                randMsg.append(diagRandCharEdit->text());
-            }
-        }
-        diagReqMsgEdit->setPlainText(randMsg);
-    });
-    diagReqMsgEdit->setMaximumHeight(40);
-    connect(diagReqMsgEdit, &QPlainTextEdit::textChanged, this, [this, diagMsgLen]{
-        QString editText = diagReqMsgEdit->toPlainText();
-        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
-        if (regStr.length() != diagReqMsgEdit->toPlainText().length()) {
-            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                diagMsgLen->setText(QString("%1/byte").arg(msg.size()));
-                diagReqMsgEdit->setPlainText(QString(msg.toHex(' ')));
-            }
-            else {
-                diagReqMsgEdit->setPlainText(editText);
-            }
-            diagReqMsgEdit->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-        }
-        else {
-            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
-                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                    diagMsgLen->setText(QString("%1/byte").arg(msg.size()));
-                    diagReqMsgEdit->setPlainText(QString(msg.toHex(' ')));
-                    diagReqMsgEdit->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-                }
-            }
-        }
-    });
-
-    serviceDesc = new QLineEdit();
-    UDSRequestLayout->addWidget(serviceDesc);
-    serviceDesc->setPlaceholderText("诊断服务描述");
-
-    connect(serviceSubListBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
-        if (serviceDescMap.contains(serviceEidt->text().toInt(nullptr, 16)) &&\
-            serviceSubMap.contains(serviceEidt->text().toInt(nullptr, 16))) {
-            serviceSubEidt->setText(QString(QByteArray(1, serviceSubMap[serviceEidt->text().toInt(nullptr, 16)][text]).toHex()));
-        }
-    });
-    connect(serviceSubEidt, &QLineEdit::textChanged, this, [this](const QString &text){
-        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
-        if (serviceDescMap.contains(serviceEidt->text().toInt(nullptr, 16)) &&\
-            serviceSubDescMap.contains(serviceEidt->text().toInt(nullptr, 16))) {
-            serviceSubListBox->setCurrentText(serviceSubDescMap[serviceEidt->text().toInt(nullptr, 16)][text.toInt(nullptr, 16)]);
-        }
-    });
-    connect(serviceListBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
-        serviceDidEidt->clear();
-        serviceDesc->clear();
-        if (serviceMap.contains(text)) {
-            serviceEidt->setText(QString(QByteArray(1, serviceMap[text]).toHex()));
-            serviceSubListBox->clear();
-            serviceSubEidt->clear();
-            if (serviceMap.contains(text) && serviceSubDescMap.contains(serviceMap[text])) {
-                serviceSubListBox->setEnabled(true);
-                serviceSubEidt->setEnabled(true);
-                for (quint8 sub = 0; sub < 0xff; sub++) {
-                    if (serviceSubDescMap[serviceMap[text]].contains(sub)) {
-                        if (serviceSubDescMap[serviceMap[text]][sub].size()) {
-                            serviceSubListBox->addItem(serviceSubDescMap[serviceMap[text]][sub]);
-                        }
-                    }
-                }
-            }
-            else {
-                serviceSubListBox->setEnabled(false);
-                serviceSubEidt->setEnabled(false);
-            }
-        }
-        if (serviceExpectRespBox) {
-            serviceExpectRespBox->setCurrentText(responseExpectDesc[notSetResponseExpect]);
-        }
-        if (serviceRespPlainText) {
-            serviceRespPlainText->clear();
-            serviceRespPlainText->setPlainText(QString::number(serviceEidt->text().toInt(0, 16) + 0x40, 16));
-        }
-    });
-    connect(serviceEidt, &QLineEdit::textChanged, this, [this](const QString &text){
-        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
-        if (serviceDescMap.contains(text.toInt(nullptr, 16))) {
-            serviceListBox->setCurrentText(serviceDescMap[text.toInt(nullptr, 16)]);
-        }
-        if (text.toInt(nullptr, 16) == RequestFileTransfer) {
-            fileTransferWidget->show();
-        } else {
-            fileTransferWidget->hide();
-        }
-        if (text.toInt(nullptr, 16) == SecurityAccess) {
-            securityAccessWidget->show();
-        } else {
-            securityAccessWidget->hide();
-        }
-    });
-
-    connect(serviceSuppressCheck, &QCheckBox::stateChanged, this, [this](int state){
-        (void)state;
-        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
-    });
-    connect(serviceDidEidt, &QLineEdit::textChanged, this, [this](const QString &text){
-        (void)text;
-        diagReqMsgEdit->setPlainText(serviceRequestEncode().toHex(' '));
-    });
-
-    serviceListBox->setCurrentIndex(1);
-    serviceListBox->setCurrentIndex(0);
-
-    QGroupBox *UDSResponseBox = new QGroupBox("服务响应校验规则");
-    QVBoxLayout *UDSResponseLayout = new QVBoxLayout();
-    QGridLayout *responseServiceConfigLayout = new QGridLayout();
-    UDSResponseBox->setLayout(UDSResponseLayout);
-    UDSResponseLayout->addLayout(responseServiceConfigLayout);
-    configMainLayout->addWidget(UDSResponseBox);
-
-    responseServiceConfigLayout->addWidget(new QLabel("预期响应："), 0, 0);
-    serviceExpectRespBox = new QComboBox();
-    QMap<QString, UDS::serviceResponseExpect>::Iterator it;
-    for (it = responseExpectMap.begin(); it != responseExpectMap.end(); ++it) {
-        serviceExpectRespBox->addItem(it.key());
-    }
-    responseServiceConfigLayout->addWidget(serviceExpectRespBox, 0, 1);
-    serviceExpectRespBox->setCurrentText(responseExpectDesc[notSetResponseExpect]);
-
-    responseServiceConfigLayout->addWidget(new QLabel("消极响应码："), 1, 0);
-    negativeResponseCodeBox = new QComboBox();
-    for (quint8 code = 0; code < 0xff; code++) {
-        if (positiveResponseCodeDesc.contains(code)) {
-            negativeResponseCodeBox->addItem(positiveResponseCodeDesc[code]);
-        }
-    }
-    negativeResponseCodeBox->setEnabled(false);
-    responseServiceConfigLayout->addWidget(negativeResponseCodeBox, 1, 1);
-
-    serviceRespPlainText = new QPlainTextEdit();
-    serviceRespPlainText->setEnabled(false);
-    serviceRespPlainText->setMaximumHeight(40);
-    UDSResponseLayout->addWidget(serviceRespPlainText);
-    connect(serviceRespPlainText, &QPlainTextEdit::textChanged, this, [this]{
-        if (responseExpectMap[serviceExpectRespBox->currentText()] == responseRegexMatch || \
-            responseExpectMap[serviceExpectRespBox->currentText()] == responseRegexMismatch) {
-            return ;
-        }
-
-        QString editText = serviceRespPlainText->toPlainText();
-        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
-        if (regStr.length() != serviceRespPlainText->toPlainText().length()) {
-            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                serviceRespPlainText->setPlainText(QString(msg.toHex(' ')));
-            }
-            else {
-                serviceRespPlainText->setPlainText(editText);
-            }
-            serviceRespPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-        }
-        else {
-            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
-                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                    serviceRespPlainText->setPlainText(QString(msg.toHex(' ')));
-                    serviceRespPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-                }
-            }
-        }
-    });
-    connect(serviceExpectRespBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
-        serviceRespPlainText->setEnabled(true);
-        serviceRespPlainText->clear();
-        if (responseExpectMap[text] != negativeResponseExpect) {
-            negativeResponseCodeBox->setEnabled(false);
-            if (responseExpectMap[text] == noResponseExpect ||\
-                responseExpectMap[text] == notSetResponseExpect) {
-                serviceRespPlainText->setEnabled(false);
-            }
-        } else {
-            QByteArray expectResponse;
-
-            expectResponse.append(0x7f);
-            expectResponse.append(serviceEidt->text().toUInt(0, 16));
-            expectResponse.append(positiveResponseCodeMap[negativeResponseCodeBox->currentText()]);
-            serviceRespPlainText->setPlainText(expectResponse.toHex(' '));
-            negativeResponseCodeBox->setEnabled(true);
-            serviceRespPlainText->setEnabled(false);
-        }
-    });
-
-    connect(negativeResponseCodeBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
-            QByteArray expectResponse;
-
-            expectResponse.append(0x7f);
-            expectResponse.append(serviceEidt->text().toUInt(0, 16));
-            expectResponse.append(positiveResponseCodeMap[text]);
-            serviceRespPlainText->setPlainText(expectResponse.toHex(' '));
-            negativeResponseCodeBox->setEnabled(true);
-    });
-
-    QGroupBox *UDSFinishBox = new QGroupBox("服务结束规则");
-    QVBoxLayout *UDSFinishLayout = new QVBoxLayout();
-    UDSFinishBox->setLayout(UDSFinishLayout);
-    configMainLayout->addWidget(UDSFinishBox);
-
-    QHBoxLayout *UDSRuleLayout = new QHBoxLayout();
-    UDSFinishLayout->addLayout(UDSRuleLayout);
-
-    UDSRuleLayout->addWidget(new QLabel("结束条件:"));
-    UDSConditionRuleComboBox = new QComboBox();
-    UDSConditionRuleComboBox->addItems(QStringList() << "default setting" << "equal to" << "unequal to" << "regex match" << "regex mismatch");
-    UDSConditionMap.insert("default setting", UDSFinishDefaultSetting);
-    UDSConditionMap.insert("equal to", UDSFinishEqualTo);
-    UDSConditionMap.insert("unequal to", UDSFinishUnEqualTo);
-    UDSConditionMap.insert("regex match", UDSFinishRegexMatch);
-    UDSConditionMap.insert("regex mismatch", UDSFinishRegexMismatch);
-    UDSConditionMap.insert("regular expression matching", UDSFinishRegularExpressionMatch);
-    UDSRuleLayout->addWidget(UDSConditionRuleComboBox);
-    UDSRuleLayout->addStretch();
-
-    UDSRuleLayout->addWidget(new QLabel("允许最大重复次数:"));
-    UDSFinishRuleEdit = new QLineEdit();
-    UDSFinishRuleEdit->setValidator(new QRegExpValidator(QRegExp("^[0-9]{10}$"), this));
-    UDSFinishRuleEdit->setMaximumWidth(100);
-    UDSRuleLayout->addWidget(UDSFinishRuleEdit);
-    UDSRuleLayout->addWidget(new QLabel(QString("<font color = red>※防止无限循环</font>")));
-
-    UDSFinishPlainText = new QPlainTextEdit();
-    UDSFinishLayout->addWidget(UDSFinishPlainText);
-    UDSFinishPlainText->setEnabled(false);
-    UDSFinishPlainText->setMaximumHeight(40);
-    UDSFinishLayout->addWidget(UDSFinishPlainText);
-    connect(UDSFinishPlainText, &QPlainTextEdit::textChanged, this, [this]{
-        if (UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegularExpressionMatch || \
-            UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegexMatch ||\
-            UDSConditionMap[UDSConditionRuleComboBox->currentText()] == UDSFinishRegexMismatch) {
-            return ;
-        }
-
-        QString editText = UDSFinishPlainText->toPlainText();
-        QString regStr(editText.remove(QRegExp("[^0-9a-fA-F^ ]")));
-        if (regStr.length() != UDSFinishPlainText->toPlainText().length()) {
-            if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                UDSFinishPlainText->setPlainText(QString(msg.toHex(' ')));
-            }
-            else {
-                UDSFinishPlainText->setPlainText(editText);
-            }
-            UDSFinishPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-        }
-        else {
-            if (regStr.contains(QRegExp("[0-9a-f]{4}"))) {
-                if (regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8().length() % 2 == 0) {
-                    QByteArray msg = QByteArray::fromHex(regStr.remove(QRegExp("[^0-9a-fA-F]")).toUtf8());
-                    UDSFinishPlainText->setPlainText(QString(msg.toHex(' ')));
-                    UDSFinishPlainText->moveCursor(QTextCursor::End, QTextCursor::MoveAnchor);
-                }
-            }
-        }
-    });
-
-    connect(UDSConditionRuleComboBox, &QComboBox::currentTextChanged, this, [this](const QString &text){
-        if (UDSConditionMap[text] != UDSFinishDefaultSetting) {
-            UDSFinishPlainText->setEnabled(true);
-        } else {
-            UDSFinishPlainText->setEnabled(false);
-        }
-    });
-
-    udsRequestConfigBtn = new QPushButton("添加");
-    udsRequestConfigBtn->setIcon(QIcon(":/icon/addList.png"));
-    configMainLayout->addWidget(udsRequestConfigBtn);
-    udsRequestConfigBtn->setStyleSheet(pushButtonStyle);
-    connect(udsRequestConfigBtn, &QPushButton::clicked, this, [this]{
-        serviceItem data;
-
-        if (!diagReqMsgEdit->toPlainText().size()) {
-            return ;
-        }
-        QString dataString = widgetConfigToString();
-        data = serviceItemDataDecode(dataString);
-        if (data.timeout == 0) {serviceTimeoutEdit->setText("2000");}
-        serviceDelayEdit->setText(QString("%1").arg(data.delay));
-        if (data.ta == 0) {
-            QString doipName = doipServerListBox->currentText();
-            if (doipConnMap.contains(doipName)) {
-                DoipClientConnect *conn = doipConnMap.find(doipName).value();
-                if (conn) {
-                    serviceTaEdit->setText(QString::number(conn->getLogicTargetAddress(), 16));
-                }
-            }
-        }
-        dataString = widgetConfigToString();
-        data = serviceItemDataDecode(dataString);
-        if (!(modifyRowIndex < 0)) {
-            modifyServiceItem(modifyRowIndex, data);
-            modifyRowIndex = -1;
-            serviceSetWidget->close();
-        }
-        else {
-            addServiceItem(data);
-        }
-    });
-
-    return configWidget;
-}
-
-QWidget *UDS::requestFileTransferWidget()
-{
-    QWidget *mainWidget = new QWidget();
-    QGridLayout *mainLayout = new QGridLayout();
-    mainWidget->setLayout(mainLayout);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    FileSelect *fileSelectWidget = new FileSelect();
-
-    mainLayout->addWidget(new QLabel("操作方式:"), 0, 0);
-    modeOfOperationComBox = new QComboBox();
-    modeOfOperationComBox->addItems(QStringList() \
-                                    << "AddFile(0x01)" \
-                                    << "DeleteFile(0x02)"\
-                                    << "ReplaceFile(0x03)" \
-                                    << "ReadFile(0x04)" \
-                                    << "ReadDir(0x05)");
-    mainLayout->addWidget(modeOfOperationComBox, 0, 1);
-    modeOfOperationMap["AddFile(0x01)"] = AddFile;
-    modeOfOperationMap["DeleteFile(0x02)"] = DeleteFile;
-    modeOfOperationMap["ReplaceFile(0x03)"] = ReplaceFile;
-    modeOfOperationMap["ReadFile(0x04)"] = ReadFile;
-    modeOfOperationMap["ReadDir(0x05)"] = ReadDir;
-
-    modeOfOperationDescMap[AddFile] = "AddFile(0x01)";
-    modeOfOperationDescMap[DeleteFile] = "DeleteFile(0x02)";
-    modeOfOperationDescMap[ReplaceFile] = "ReplaceFile(0x03)";
-    modeOfOperationDescMap[ReadFile] = "ReadFile(0x04)";
-    modeOfOperationDescMap[ReadDir] = "ReadDir(0x05)";
-
-    mainLayout->addWidget(new QLabel("文件路径和文件名长度:"), 0, 2);
-    filePathAndNameLengthEdit = new QLineEdit();
-    mainLayout->addWidget(filePathAndNameLengthEdit, 0, 3);
-
-    mainLayout->addWidget(new QLabel("文件路径和文件名:"), 1, 0);
-    filePathAndNameEdit = new QLineEdit();
-    mainLayout->addWidget(filePathAndNameEdit, 1, 1, 1, 3);
-
-    QPushButton *fileSelect = new QPushButton("选择传输文件");
-    fileSelect->setIcon(QIcon(":/icon/file.png"));
-    //mainLayout->addWidget(fileSelect, 1, 3);
-
-    mainLayout->addWidget(new QLabel("数据格式标识符:"), 2, 0);
-    dataFormatIdentifierEdit = new QLineEdit();
-    mainLayout->addWidget(dataFormatIdentifierEdit, 2, 1);
-
-    mainLayout->addWidget(new QLabel("文件大小参数长度:"), 2, 2);
-    fileSizeParameterLengthEdit = new QLineEdit();
-    mainLayout->addWidget(fileSizeParameterLengthEdit, 2, 3);
-
-    mainLayout->addWidget(new QLabel("未压缩文件大小:"), 3, 0);
-    fileSizeUnCompressedEdit = new QLineEdit();
-    mainLayout->addWidget(fileSizeUnCompressedEdit, 3, 1);
-
-    mainLayout->addWidget(new QLabel("压缩文件大小:"), 3, 2);
-    fileSizeCompressedEdit = new QLineEdit();
-    mainLayout->addWidget(fileSizeCompressedEdit, 3, 3);
-
-    mainLayout->addWidget(new QLabel("MD5:"), 4, 0);
-    QLineEdit *fileMd5Edit = new QLineEdit();
-    mainLayout->addWidget(fileMd5Edit, 4, 1, 1, 2);
-
-    QCheckBox *md5Check = new QCheckBox("计算文件MD5");
-    mainLayout->addWidget(md5Check, 4, 3);
-
-    mainLayout->addWidget(fileSelectWidget, 5, 0, 1, 4);
-
-    connect(fileSelectWidget, &FileSelect::fileChange, this, [this, fileMd5Edit, md5Check](QString fileName){
-        localFilePath = fileName;
-        QFileInfo fileInfo(fileName);
-        QFile file(fileName);
-
-        fileTransferPath = fileInfo.path();
-        switch (QMessageBox::information(0, tr("确认文件"), tr(QString("再次确认是否使用(%1)?").arg(fileName).toStdString().c_str()), tr("是"), tr("否"), 0, 1 )) {
-          case 0: break;
-          case 1: default: return ; break;
-        }
-
-        if (QFileInfo(servicetransferFileDir + fileInfo.fileName()).exists()) {
-            switch (QMessageBox::information(0, tr("加载传输文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
-              case 0: break;
-              case 1: default:return;break;
-            }
-        }
-        if (file.copy(servicetransferFileDir + fileInfo.fileName())) {
-            localFilePath = fileInfo.fileName();
-        }
-        fileSizeCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
-        fileSizeUnCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
-        fileSizeParameterLengthEdit->setText("4");
-        dataFormatIdentifierEdit->setText("0");
-        filePathAndNameEdit->setText(fileInfo.fileName());
-        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
-
-        if (md5Check->checkState() == Qt::Checked) {
-            if (file.size() > 100 * 1024 * 1024) {
-                switch (QMessageBox::information(0, tr("MD5计算"), tr("文件较大计算MD5耗时较长是否继续?"), tr("是"), tr("否"), 0, 1 )) {
-                  case 0: break;
-                  case 1: default: return ; break;
-                }
-            }
-            QFile theFile(fileName);
-            theFile.open(QIODevice::ReadOnly);
-            QByteArray ba = QCryptographicHash::hash(theFile.readAll(), QCryptographicHash::Md5);
-            theFile.close();
-            fileMd5Edit->setText(ba.toHex().constData());
-            QClipboard *clipboard = QApplication::clipboard();
-            clipboard->setText(fileMd5Edit->text());
-        }
-    });
-
-    connect(fileSelect, &QPushButton::clicked, this, [this, mainWidget, fileMd5Edit, md5Check]{
-        QString fileName = QFileDialog::getOpenFileName(mainWidget, "选择文件", \
-                             fileTransferPath.size() == 0 ? "C:\\Users\\Administrator\\Desktop" : fileTransferPath);
-        if (fileName.size() == 0) { return ; }
-        localFilePath = fileName;
-        QFileInfo fileInfo(fileName);
-        QFile file(fileName);
-
-        fileTransferPath = fileInfo.path();
-        switch (QMessageBox::information(0, tr("确认文件"), tr(QString("再次确认是否使用(%1)?").arg(fileName).toStdString().c_str()), tr("是"), tr("否"), 0, 1 )) {
-          case 0: break;
-          case 1: default: return ; break;
-        }
-
-        if (QFileInfo(servicetransferFileDir + fileInfo.fileName()).exists()) {
-            switch (QMessageBox::information(mainWidget, tr("加载传输文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
-              case 0: break;
-              case 1: default:return;break;
-            }
-        }
-        if (file.copy(servicetransferFileDir + fileInfo.fileName())) {
-            localFilePath = fileInfo.fileName();
-        }
-        fileSizeCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
-        fileSizeUnCompressedEdit->setText(QString("%1").arg(fileInfo.size()));
-        fileSizeParameterLengthEdit->setText("4");
-        dataFormatIdentifierEdit->setText("0");
-        filePathAndNameEdit->setText(fileInfo.fileName());
-        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
-
-        if (md5Check->checkState() == Qt::Checked) {
-            QFile theFile(fileName);
-            theFile.open(QIODevice::ReadOnly);
-            QByteArray ba = QCryptographicHash::hash(theFile.readAll(), QCryptographicHash::Md5);
-            theFile.close();
-            fileMd5Edit->setText(ba.toHex().constData());
-            QClipboard *clipboard = QApplication::clipboard();
-            clipboard->setText(fileMd5Edit->text());
-        }
-    });
-
-    connect(filePathAndNameEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        Q_UNUSED(text);
-        filePathAndNameLengthEdit->setText(QString("%1").arg(filePathAndNameEdit->text().size()));
-        QString dataString = widgetConfigToString();
-        serviceItem data = serviceItemDataDecode(dataString);
-        QByteArray msg = getRequestFileTransferMessage(data);
-        diagReqMsgEdit->setPlainText(msg.toHex(' '));
-    });
-
-    return mainWidget;
-}
-
-QWidget *UDS::SecurityAccessWidget()
-{
-    QWidget *mainWidget = new QWidget();
-    QVBoxLayout *mainLayout = new QVBoxLayout();
-    QHBoxLayout *saConfigLayout = new QHBoxLayout();
-    mainLayout->addLayout(saConfigLayout);
-    mainLayout->addWidget(new QLabel(QString("<font color = red>※支持工具自定义, ZLG, CANoe dll文件格式</font>")));
-    mainWidget->setLayout(mainLayout);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    SecurityAccessComBox = new QComboBox();
-    SecurityAccessComBox->addItem("Default");
-    QLabel *selectLabel = new QLabel("27服务算法dll文件选择:");
-    selectLabel->setMaximumWidth(130);
-    saConfigLayout->addWidget(selectLabel);
-    saConfigLayout->addWidget(SecurityAccessComBox);
-
-    QDir dir(securityDllDir);
-    if (!dir.exists()) {
-        dir.mkdir(securityDllDir);
-    }
-    QFileInfoList list = dir.entryInfoList();
-    dir.setNameFilters(QStringList() << "*.dll");
-    foreach(QFileInfo fileinfo, list) {
-        if (fileinfo.completeSuffix() == "dll") {
-            SecurityAccessComBox->addItem(fileinfo.fileName().remove(".dll"));
-        }
-    }
-
-    QPushButton *fileSelect = new QPushButton("加载算法文件");
-    fileSelect->setMaximumWidth(100);
-    fileSelect->setIcon(QIcon(":/icon/file.png"));
-    saConfigLayout->addWidget(fileSelect);
-    connect(fileSelect, &QPushButton::clicked, this, [this, mainWidget]{
-        QString fileName = QFileDialog::getOpenFileName(mainWidget, "加载算法文件", "C:\\Users\\Administrator\\Desktop", tr("dll (*.dll)"));
-        if (!fileName.size()) {
-            return ;
-        }
-
-        QLibrary lib(fileName);
-        if(!lib.load()) {
-            qDebug() << __FUNCTION__ << "security_access_generate_key" << "load err";
-            return ;
-        }
-        if (lib.resolve("security_access_generate_key") == nullptr &&\
-            lib.resolve("ZLGKey") == nullptr && \
-            lib.resolve("GenerateKeyEx") == nullptr) {
-            lib.unload();
-            qDebug() << __FUNCTION__ << "security_access_generate_key is null";
-            QMessageBox::warning(mainWidget, tr("加载算法文件"), tr("dll算法文件格式不兼容，无法使用"));
-            return ;
-        }
-        lib.unload();
-
-        QFileInfo fileInfo(fileName);
-        QString destFilePath = securityDllDir + fileInfo.fileName();
-        if (QFileInfo(destFilePath).exists()) {
-            switch (QMessageBox::information(mainWidget, tr("加载算法文件"), tr("文件已存在是否替换?"), tr("是"), tr("否"), 0, 1 )) {
-              case 0: break;
-              case 1: default:return;break;
-            }
-        }
-        QFile::copy(fileName, destFilePath);
-
-        SecurityAccessComBox->clear();
-        SecurityAccessComBox->addItem("Default");
-        QDir dir(securityDllDir);
-        QFileInfoList list = dir.entryInfoList();
-        dir.setNameFilters(QStringList() << "*.dll");
-        foreach(QFileInfo fileinfo, list) {
-            if (fileinfo.completeSuffix() == "dll") {
-                SecurityAccessComBox->addItem(fileinfo.fileName().remove(".dll"));
-                qDebug() << fileinfo.fileName();
-            }
-        }
-    });
-
-
-    return mainWidget;
-}
 
 QByteArray UDS::serviceRequestEncode()
 {
@@ -2766,8 +3203,6 @@ void UDS::serviceRequestHandler(serviceItem &data)
 
 bool UDS::sendServiceRequest(int index, QString channelName)
 {
-    if (!(index >= 0)) return false;
-
     if (channelName.size() == 0) {
         setTableItemColor(serviceSetModel, index, serviceItemStateColor[serviceItemTestWarn]);
         return false;
@@ -2838,18 +3273,19 @@ bool UDS::sendServiceRequest(int index, QString channelName)
                 data.ta = canResponsePhysAddr->text().toUInt(0, 16);
             }
         }
+        // CANDiagPcap.saveCANCapturePackets((const unsigned char *)data.requestMsg.constData(), data.requestMsg.size());
         sendSuccess = can->sendRequest(data.requestMsg.constData(), data.requestMsg.size(), \
                                        canRequestAddr->text().toUInt(nullptr, 16), data.ta, data.isspuress, data.timeout);
     }
     if (sendSuccess) {
-        #if 1
+#if 1
         QList<QStandardItem *> itemList;
         for (int nn = 0; nn < serviceSetModel->columnCount(); nn++) {
             QStandardItem *item = serviceSetModel->item(index, nn);
             itemList.append(item);
         }
         setActiveServiceFlicker(itemList);
-        #endif
+#endif
     } else {
         setTableItemColor(serviceSetModel, index, serviceItemStateColor[serviceItemTestWarn]);
     }
@@ -2859,7 +3295,9 @@ bool UDS::sendServiceRequest(int index, QString channelName)
 
 void UDS::serviceListReset(QStandardItemModel *model)
 {
+#ifdef __HAVE_CHARTS__
     chartView->hide();
+#endif /* __HAVE_CHARTS__ */
     serviceItemStatis[serviceItemNotTest] = serviceItemStatis[serviceItemAll];
     serviceItemStatisLabel[serviceItemNotTest]->setText(QString("未测试:%1").arg(serviceItemStatis[serviceItemNotTest]));
     serviceItemStatis[serviceItemTestPass] = 0;
@@ -2903,6 +3341,7 @@ void UDS::serviceListReset(QStandardItemModel *model)
 
 void UDS::visualizationTestResult()
 {
+#ifdef __HAVE_CHARTS__
     if (serviceSetActive()) {
         return ;
     }
@@ -2938,10 +3377,16 @@ void UDS::visualizationTestResult()
     series->attachAxis(axisX);
     chartView->setChart(chart);
     chartView->show();
+#endif /* __HAVE_CHARTS__ */
 }
 
 bool UDS::abortServiceTask()
 {
+    // CANDiagPcap.stopCANCapturePackets();
+    if (IPDiagPcapCheckBox->checkState() == Qt::Checked &&\
+        doipDiagCheckBox->checkState() == Qt::Checked) {
+        diagPcap.stopIPCapturePackets();
+    }
     serviceActiveTask.responseTimer.stop();
     addDidDescBtn->setEnabled(true);
     addDtcDescBtn->setEnabled(true);
@@ -2971,371 +3416,9 @@ bool UDS::abortServiceTask()
     return true;
 }
 
-QWidget *UDS::serviceProjectListWidget()
-{
-    QWidget *mainWidget = new QWidget();
-    mainWidget->setStyleSheet(btnCommonStyle);
 
-    projectListTimer = new QTimer(this);
 
-    QVBoxLayout *projectNameLayout = new QVBoxLayout();
-    mainWidget->setLayout(projectNameLayout);
-
-    projectNameListComBox = new QComboBox();
-    projectNameListComBox->setEditable(true);
-    projectNameLayout->addWidget(projectNameListComBox);
-
-    QHBoxLayout *sldBtnLayout = new QHBoxLayout();
-    projectNameLayout->addLayout(sldBtnLayout);
-    QPushButton *saveprojectNameListWidgetBtn = new QPushButton("保存");
-    saveprojectNameListWidgetBtn->setIcon(QIcon(":/icon/save.png"));
-    sldBtnLayout->addWidget(saveprojectNameListWidgetBtn);
-
-    QPushButton *loadprojectNameListWidgetBtn = new QPushButton("加载");
-    loadprojectNameListWidgetBtn->setIcon(QIcon(":/icon/load.png"));
-    sldBtnLayout->addWidget(loadprojectNameListWidgetBtn);
-
-    QPushButton *deleteprojectNameListWidgetBtn = new QPushButton("删除");
-    deleteprojectNameListWidgetBtn->setIcon(QIcon(":/icon/delete.png"));
-    sldBtnLayout->addWidget(deleteprojectNameListWidgetBtn);
-
-    QDir dir(serviceProjectListConfigDir);
-    if (!dir.exists()) {
-        dir.mkdir(serviceProjectListConfigDir);
-    }
-    QFileInfoList list = dir.entryInfoList();
-    dir.setNameFilters(QStringList() << "*.json");
-    projectNameListComBox->clear();
-    foreach(QFileInfo fileinfo, list) {
-        if (fileinfo.completeSuffix() == "json") {
-            projectNameListComBox->addItem(fileinfo.fileName());
-        }
-    }
-    connect(saveprojectNameListWidgetBtn, &QPushButton::clicked, this, [this, saveprojectNameListWidgetBtn]{
-        if (serviceActive()) {
-            promptForAction(QString("<font color = red><测试中无法%1</font>").arg(saveprojectNameListWidgetBtn->text()));
-            return ;
-        }
-        if (projectNameModel->rowCount() == 0) {
-            promptForAction(QString("<font color = red>%1表格中无数据项</font>").arg(saveprojectNameListWidgetBtn->text()));
-            return ;
-        }
-        QString fileName = projectNameListComBox->lineEdit()->text();
-        if (fileName.size() == 0) {
-            promptForAction(QString("<font color = red>%1失败条件文件名长度不能为0</font>").arg(saveprojectNameListWidgetBtn->text()));
-            return ;
-        }
-
-        QFileInfo fileinfo(serviceProjectListConfigDir + "/" + fileName);
-        if (fileinfo.isFile()) {
-            switch (QMessageBox::information(0, tr("覆盖文件"), tr("是否覆盖同名文件?"), tr("是"), tr("否"), 0, 1 )) {
-              case 0: break;
-              case 1: default: return ; break;
-            }
-            fileName =  serviceProjectListConfigDir + "/" + fileName;
-        }
-        else {
-            if (fileName.contains("json")) {
-                promptForAction(QString("<font color = red>%1失败条件不满足(文件名不能包含“json”字符串)</font>")\
-                                .arg(saveprojectNameListWidgetBtn->text()));
-                return ;
-            }
-            fileName =  serviceProjectListConfigDir + "/" + fileName + ".json";
-        }
-
-        QFile file(fileName);
-        file.open(QIODevice::ReadWrite);
-        for (int nn = 0; nn < projectNameModel->rowCount(); nn++) {
-            QJsonObject rootObj;
-            if (projectNameModel->item(nn, 0)) {
-                rootObj.insert("Project", projectNameModel->item(nn, 0)->text());
-            }
-            file.write(QJsonDocument(rootObj).toJson(QJsonDocument::Compact));
-            file.write("\n");
-        }
-        file.close();
-        projectNameListComBox->addItem(fileinfo.fileName());
-        projectNameListComBox->setCurrentText(fileinfo.fileName());
-        promptForAction(QString("<a style='color: rgb(30, 144, 255);' href=\"file:///%1\">保存成功:%2</a>")\
-                        .arg(serviceProjectListConfigDir).arg(fileName));
-    });
-
-    connect(loadprojectNameListWidgetBtn, &QPushButton::clicked, this, [this]{
-        if (serviceActive()) {
-            promptForAction(QString("<font color = red>测试中无法加载</font>"));
-            return ;
-        }
-        if (projectNameListComBox->lineEdit()->text().size() == 0) {
-            return ;
-        }
-        projectNameModel->removeRows(0, projectNameModel->rowCount());
-        QString fileName =  serviceProjectListConfigDir + projectNameListComBox->lineEdit()->text();
-        QFileInfo fileInfo(fileName);
-        if (fileInfo.exists()) {
-            QFile file(fileName);
-            file.open(QIODevice::ReadOnly);
-            QByteArray linedata;
-            do {
-                linedata.clear();
-                linedata = file.readLine();
-                if (linedata.size()) {
-                    QString config = QString(linedata).toUtf8().data();
-                    QJsonParseError err;
-
-                    QJsonObject ProjectObj = QJsonDocument::fromJson(config.toUtf8(), &err).object();
-                    if (err.error)
-                        return ;
-
-                    if (ProjectObj.contains("Project")) {
-                        QList<QStandardItem *> items;
-                        items.append(new QStandardItem(ProjectObj["Project"].toString()));
-                        projectNameModel->appendRow(items);
-                    }
-                }
-            } while (linedata.size() > 0);
-            file.close();
-            promptForAction(QString("<font color = green>加载成功</font>"));
-        }
-    });
-
-    connect(deleteprojectNameListWidgetBtn, &QPushButton::clicked, this, [this]{
-        if (serviceActive()) {
-            promptForAction(QString("<font color = red>测试中无法删除</font>"));
-            return ;
-        }
-
-        if (projectNameListComBox->lineEdit()->text().size() == 0) {
-            return ;
-        }
-
-        switch (QMessageBox::information(0, tr("删除"), tr("确认删除?"), tr("是"), tr("否"), 0, 1 )) {
-          case 0: break;
-          case 1: default: return ; break;
-        }
-        QString fileName =  serviceProjectListConfigDir + projectNameListComBox->lineEdit()->text();
-        QFileInfo fileInfo(fileName);
-        if (fileInfo.exists()) {
-            QFile file(fileName);
-            file.remove();
-            projectNameListComBox->removeItem(projectNameListComBox->currentIndex());
-            promptForAction(QString("<font color = green>删除成功</font>"));
-        }
-    });
-
-    QHBoxLayout *paBtnLayout = new QHBoxLayout();
-    projectNameLayout->addLayout(paBtnLayout);
-    projectNameComBox = new QComboBox();
-    paBtnLayout->addWidget(projectNameComBox);
-
-    QPushButton *addBtn = new QPushButton("添加");
-    addBtn->setIcon(QIcon(":/icon/addList.png"));
-    addBtn->setMaximumWidth(50);
-    paBtnLayout->addWidget(addBtn);
-
-    QHBoxLayout *ssBtnLayout = new QHBoxLayout();
-    projectNameLayout->addLayout(ssBtnLayout);
-    QPushButton *startBtn = new QPushButton("开始");
-    startBtn->setIcon(QIcon(":/icon/testing.png"));
-    ssBtnLayout->addWidget(startBtn);
-
-    QPushButton *stopBtn = new QPushButton("停止");
-    stopBtn->setIcon(QIcon(":/icon/stop.png"));
-    ssBtnLayout->addWidget(stopBtn);
-
-    QPushButton *clearBtn = new QPushButton("清除");
-    clearBtn->setIcon(QIcon(":/icon/clear.png"));
-    ssBtnLayout->addWidget(clearBtn);
-
-    projectNameModel = new QStandardItemModel();
-    projectNameTable = new QTableView();
-    projectNameLayout->addWidget(projectNameTable);
-    projectNameTable->setModel(projectNameModel);
-    projectNameTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    projectNameTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    projectNameTable->setAlternatingRowColors(true);
-    projectNameTable->horizontalHeader()->hide();
-    projectNameTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    projectNameWidgetMenu = new QMenu();
-    QAction *projectSetDelAction = new QAction("删除此项");
-    projectSetDelAction->setIcon(QIcon(":/icon/delete.png"));
-    projectNameWidgetMenu->addAction(projectSetDelAction);
-
-    QAction *projectLoadAction = new QAction("加载此项");
-    projectLoadAction->setIcon(QIcon(":/icon/load.png"));
-    projectNameWidgetMenu->addAction(projectLoadAction);
-
-    QAction *projectSetUpAction = new QAction("上移一行");
-    projectSetUpAction->setIcon(QIcon(":/icon/up.png"));
-    projectNameWidgetMenu->addAction(projectSetUpAction);
-
-    QAction *projectSetDownAction = new QAction("下移一行");
-    projectSetDownAction->setIcon(QIcon(":/icon/down.png"));
-    projectNameWidgetMenu->addAction(projectSetDownAction);
-
-    QAction *projectSetMoveAction = new QAction("移动至行");
-    projectSetMoveAction->setIcon(QIcon(":/icon/move.png"));
-    projectNameWidgetMenu->addAction(projectSetMoveAction);
-
-    QDialog *projectSetMoveDiag = new QDialog();
-    projectSetMoveDiag->setAttribute(Qt::WA_QuitOnClose, false);
-    projectSetMoveDiag->setWindowTitle("移动至行");
-    QHBoxLayout *projectSetMoveDiagLayout = new QHBoxLayout();
-    projectSetMoveDiag->setLayout(projectSetMoveDiagLayout);
-    QLabel *projectSetMoveHint = new QLabel("移动到");
-    projectSetMoveDiagLayout->addWidget(projectSetMoveHint);
-    QLineEdit *projectSetMoveDiagEdit = new QLineEdit();
-    projectSetMoveDiagEdit->setMaximumWidth(40);
-    projectSetMoveDiagEdit->setValidator(new QIntValidator(0, 100000, projectSetMoveDiagEdit));
-    projectSetMoveDiagLayout->addWidget(projectSetMoveDiagEdit);
-    projectSetMoveDiagLayout->addWidget(new QLabel("行"));
-    QPushButton *projectSetMoveDiagConfirmBtn = new QPushButton("确定");
-    projectSetMoveDiagLayout->addWidget(projectSetMoveDiagConfirmBtn);
-    connect(projectSetMoveDiagConfirmBtn, &QPushButton::clicked, this, \
-            [this, projectSetMoveDiag, projectSetMoveDiagEdit] {
-        projectSetMoveDiag->hide();
-        int newRow = projectSetMoveDiagEdit->text().toInt();
-        qDebug() << "newRow:" << newRow << " " << projectNameModel->rowCount();
-        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), newRow - 1);
-
-    });
-
-    connect(projectSetDelAction, &QAction::triggered, this, [this]{
-        switch (QMessageBox::information(0, tr("删除"), tr("确认删除?"), tr("是"), tr("否"), 0, 1 )) {
-          case 0:break;
-          case 1:default: return ; break;
-        }
-        if (projectSetSelectRow < 0 || projectSetSelectRow >= projectNameModel->rowCount()) {
-            return ;
-        }
-        projectNameModel->removeRow(projectSetSelectRow);
-    });
-
-    connect(projectLoadAction, &QAction::triggered, this, [this]{
-        if (projectSetSelectRow < 0 || projectSetSelectRow >= projectNameModel->rowCount()) {
-            return ;
-        }
-        QStandardItem *item = projectNameModel->item(projectSetSelectRow, 0);
-        if (item) {
-            loadServiceSet(serviceSetProjectDir + item->text());
-        }
-    });
-
-    connect(projectSetUpAction, &QAction::triggered, this, [this]{
-        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), \
-                           projectNameTable->selectionModel()->currentIndex().row() - 1);
-    });
-
-    connect(projectSetDownAction, &QAction::triggered, this, [this]{
-        projectSetMoveItem(projectNameTable->selectionModel()->currentIndex().row(), \
-                           projectNameTable->selectionModel()->currentIndex().row() + 1);
-    });
-
-    connect(projectSetMoveAction, &QAction::triggered, this, [this, projectSetMoveDiag, projectSetMoveHint]{
-        projectSetMoveDiag->hide();
-        projectSetMoveHint->setText(QString("第%1移动到").arg(projectNameTable->selectionModel()->currentIndex().row() + 1));
-        projectSetMoveDiag->show();
-    });
-
-    connect(projectNameTable, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(projectSetContextMenuSlot(QPoint)));
-
-    mainWidget->setMaximumWidth(350);
-
-    connect(addBtn, &QPushButton::clicked, this, [this](){
-        if (projectNameComBox->currentText().size()) {
-            QList<QStandardItem *> items;
-            items.append(new QStandardItem(projectNameComBox->currentText()));
-            projectNameModel->appendRow(items);
-        }
-    });
-
-    connect(startBtn, &QPushButton::clicked, this, [this, startBtn, stopBtn, addBtn, clearBtn](){
-        projectListIndex = -1;
-        abortServiceTask();
-        if (projectNameModel->rowCount() > 0) {
-            projectListIndex = 0;
-        }
-        if (projectListIndex >= 0) {
-            projectListTimer->setInterval(10);
-            projectListTimer->start();
-            startBtn->setEnabled(false);
-            clearBtn->setEnabled(false);
-            stopBtn->setEnabled(true);
-            addBtn->setEnabled(false);
-            for (int index = 0; index < projectNameModel->rowCount(); index++) {
-                if (index % 2) {
-                    setTableItemColor(projectNameModel, index, "#F5F5F5");
-                } else {
-                    setTableItemColor(projectNameModel, index, "#FFFFFF");
-                }
-            }
-            generateTestResultFileName();
-            cycleNumberEdit->setText("0");
-        }
-    });
-
-    connect(clearBtn, &QPushButton::clicked, this, [this](){
-        switch (QMessageBox::information(0, tr("删除"), tr("确认清除列表?"), tr("是"), tr("否"), 0, 1 )) {
-          case 0: break;
-          case 1: default: return ; break;
-        }
-        projectNameModel->removeRows(0, projectNameModel->rowCount());
-    });
-
-    connect(stopBtn, &QPushButton::clicked, this, [this, startBtn, stopBtn, addBtn, clearBtn](){
-        projectListIndex = -1;
-        activeServiceProjectFlicker.isvalid = false;
-        abortServiceTask();
-        projectListTimer->stop();
-        startBtn->setEnabled(true);
-        clearBtn->setEnabled(true);
-        stopBtn->setEnabled(false);
-        addBtn->setEnabled(true);
-        testResultCheckBox->setCheckState(Qt::Unchecked); /* 关闭结果记录，防止误开导致巨大的日志文件 */
-        for (int index = 0; index < projectNameModel->rowCount(); index++) {
-            if (index % 2) {
-                setTableItemColor(projectNameModel, index, "#F5F5F5");
-            } else {
-                setTableItemColor(projectNameModel, index, "#FFFFFF");
-            }
-        }
-    });
-
-    connect(projectListTimer, &QTimer::timeout, this, [this, startBtn, stopBtn, addBtn, clearBtn] {
-        if (!serviceActive() && (projectListIndex < 0 || \
-            projectListIndex >= projectNameModel->rowCount())) {
-            projectListIndex = -1;
-            projectListTimer->stop();
-            startBtn->setEnabled(true);
-            clearBtn->setEnabled(true);
-            stopBtn->setEnabled(false);
-            addBtn->setEnabled(true);
-            activeServiceProjectFlicker.isvalid = false;
-            testResultCheckBox->setCheckState(Qt::Unchecked); /* 关闭结果记录，防止误开导致巨大的日志文件 */
-        } else {
-            if (!serviceActive()) {
-                QStandardItem *item = projectNameModel->item(projectListIndex, 0);
-                if (item) {
-                    projectNameTable->scrollTo(projectNameModel->index(projectListIndex, 0));
-                    QStandardItem *previtem = projectNameModel->item(projectListIndex - 1, 0);
-                    if (!previtem || previtem->text() != item->text()) {
-                        loadServiceSet(serviceSetProjectDir + item->text());
-                    }
-                    QList<QStandardItem *> itemList;
-                    itemList.append(item);
-                    setActiveServiceProjectFlicker(itemList);
-                    sendListBtn->click();
-                }
-                //setTableItemColor(projectNameModel, projectListIndex, "#00B2EE");
-                projectNameTable->scrollTo(projectNameModel->index(projectListIndex, 0));
-                projectListIndex++;
-            }
-        }
-    });
-
-    return mainWidget;
-}
-
-bool UDS::loadServiceSet(QString filename)
+bool UDS::readServiceSet(QString filename)
 {
     QFileInfo fileInfo(filename);
     QFile file(filename);
@@ -3607,6 +3690,14 @@ bool UDS::serviceResponseHandle(QByteArray response, serviceItem &data)
         } else {
             /* 传输未完成 */
             iskeepCurrentTask = true;
+        }
+    }
+    else if (sid == (0x40 | DiagnosticSessionControl)) {
+        if (response.size() >= 6) {
+            this->P2ServerMax = response.at(2) << 8 | response.at(3);
+            this->P2EServerMax = response.at(4) << 8 | response.at(5);
+            realTimeLog(QString::asprintf("p2 server max => %d ms", this->P2ServerMax));
+            realTimeLog(QString::asprintf("p2 e server max => %d ms", this->P2EServerMax));
         }
     }
 
@@ -4192,13 +4283,22 @@ UDS::serviceItemState UDS::serverSetItemResultState(serviceItem data, QByteArray
 {
     enum serviceItemState itemState = serviceItemTestFail;
 
+    QStandardItem *responseItem = serviceSetModel->item(serviceActiveTask.indexRow, udsViewResponseColumn);
     if (responseExpectMap[data.expectResponse] == noResponseExpect) {
-        if (response.size() > 0) itemState = serviceItemTestFail;
+        if (response.size() > 0) {
+            itemState = serviceItemTestFail;
+            responseItem->setText(QString::asprintf("预期无响应，实际响应(%s)", response.toHex(' ').toStdString().c_str()));
+        }
         else itemState = serviceItemTestPass;
     }
     else if (responseExpectMap[data.expectResponse] == negativeResponseExpect ||\
              responseExpectMap[data.expectResponse] == positiveResponseExpect) {
-        if (response.toHex(' ') != data.expectResponseRule) itemState = serviceItemTestFail;
+        if (response.toHex(' ') != data.expectResponseRule) {
+            itemState = serviceItemTestFail;
+            responseItem->setText(QString::asprintf("预期响应%s(%s)，实际响应(%s)", \
+                data.expectResponse.toStdString().c_str(), \
+                data.expectResponseRule.toStdString().c_str(), response.toHex(' ').toStdString().c_str()));
+        }
         else itemState = serviceItemTestPass;
     }
     else if (responseExpectMap[data.expectResponse] == responseRegexMatch) {
@@ -4223,6 +4323,9 @@ UDS::serviceItemState UDS::serverSetItemResultState(serviceItem data, QByteArray
                                               __FUNCTION__, __LINE__, inputStr.toStdString().c_str(), \
                                               data.expectResponseRule.toStdString().c_str()));
                 itemState = serviceItemTestFail;
+                responseItem->setText(QString::asprintf("预期响应%s(%s)，实际响应(%s)", \
+                    data.expectResponse.toStdString().c_str(), \
+                    data.expectResponseRule.toStdString().c_str(), response.toHex(' ').toStdString().c_str()));
             }
         }
     }
@@ -4252,8 +4355,12 @@ UDS::serviceItemState UDS::serverSetItemResultState(serviceItem data, QByteArray
         }
     }
     else {
-        if (response.size() > 0 && response.at(0) == 0x7f) itemState = serviceItemTestWarn;
-        else itemState = serviceItemTestPass;
+        if (response.size() > 0 && response.at(0) == 0x7f) {
+            itemState = serviceItemTestWarn;
+        }
+        else {
+            itemState = serviceItemTestPass;
+        }
     }
 
     return itemState;
@@ -4312,6 +4419,38 @@ void UDS::diagnosisResponseSlot(DoipClientConnect *doipConn, DoipClientConnect::
 
 void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDiagFinishState state, QByteArray &response)
 {
+    for (; state == DoipClientConnect::normalFinish ;) {
+        serviceItem sitem;
+
+        if (serviceActive()) {
+            getServiceItemData(serviceActiveTask.indexRow, sitem);
+        }
+        else if (manualSendRowIndex >= 0) {
+            getServiceItemData(manualSendRowIndex, sitem);
+        }
+        else {
+            return ;
+        }
+        if(response.size() >= 3 && \
+           (quint8)response.at(0) == 0x7f && \
+            (quint8)response.at(1) == sitem.SID) {
+            break; /* for */
+        }
+        if (response.size() >= 1 && \
+           (quint8)response.at(0) == (sitem.SID | 0x40)) {
+            break; /* for */
+        }
+        return ;
+    }
+    if (response.size() == 3 &&\
+        (quint8)response.at(0) == (quint8)0x7f &&\
+        (quint8)response.at(2) == (quint8)0x78) {
+        /* 只刷新定时器 */
+        realTimeLog(QString::asprintf("刷新响应超时定时器 %d ms", this->P2EServerMax * 10));
+        serviceActiveTask.responseTimer.setInterval(this->P2EServerMax * 10);
+        return ;
+    }
+
     if (manualSendRowIndex >= 0) {
         serviceItem data;
         getServiceItemData(manualSendRowIndex, data);
@@ -4329,9 +4468,7 @@ void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDi
                                             serviceItemStateColor[itemState], data.SID, data.desc.toStdString().c_str());
         promptForAction(hintMsg);
     }
-    // qDebug() << "channelName:" << channelName;
-    // qDebug() << "serviceActiveTask.channelName:" << serviceActiveTask.channelName;
-    // realTimeLog(QString("通道:%1, UDS应答:%2").arg(serviceActiveTask.channelName).arg(QString(response.toHex())));
+
     if (serviceActive() && channelName == serviceActiveTask.channelName) {
         /* 计算传输速度 */
         serviceActiveTask.downTotalByte += response.size();
@@ -4347,6 +4484,15 @@ void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDi
         serviceActiveTask.runtotal++;
         if (state == DoipClientConnect::normalFinish) {
             serviceResponseHandle(response, serviceActiveTask.data);
+        }
+
+        /* 标记响应超时 */
+        if (state == DoipClientConnect::TimeoutFinish) {
+            QStandardItem *item = serviceSetModel->item(serviceActiveTask.indexRow, udsViewResponseColumn);
+            if (item) {
+                item->setText("响应超时");
+                item->setToolTip("响应超时");
+            }
         }
         /* 判断当前任务是否结束，标记当前任务结果状态 */
         if (!keepCurrentTask()) {
@@ -4399,6 +4545,14 @@ void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDi
                 allServiceElapsedTimeLCDNumber->display(QString("%1").arg(allServiceTimer.elapsed()));
                 serviceTimer.restart();
             }
+
+            if (failureAbortCheckBox->checkState() == Qt::Checked && \
+                itemState == serviceItemTestFail) {
+                serviceActiveTask.indexRow = serviceSetModel->rowCount();
+                QString hintMsg = QString::asprintf("<font color = red>测试项失败，终止诊断测试</font>");
+                promptForAction(hintMsg);
+            }
+
             /* 跳转到下一个任务 */
             serviceActiveTask.indexRow++;
             serviceActiveTask.runtotal = 0;
@@ -4413,9 +4567,6 @@ void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDi
         }
         else {
             /* 单个任务结束 */
-            // QDateTime dateTime = QDateTime::currentDateTime();
-            //QStandardItem *item = serviceSetModel->item(serviceActiveTask.indexRow, udsViewElapsedTimeColumn);
-            //if (item) {item->setText(QString("%1").arg(serviceTimer.elapsed()));}
             if (!highPerformanceEnable) {
                 allServiceElapsedTimeLCDNumber->display(QString("%1").arg(allServiceTimer.elapsed()));
                 serviceElapsedTimeLCDNumber->display(QString("%1").arg(serviceTimer.elapsed()));
@@ -4426,39 +4577,9 @@ void UDS::diagnosisResponseHandle(QString channelName, DoipClientConnect::sendDi
     }
 }
 
-void UDS::serviceSetBackupCache()
+void UDS::writeServiceSetCache()
 {
-    saveServiceSet(serviceBackCacheDir + "/serviceSetCache.json");
-}
-
-#include <QTextCodec>
-void UDS::operationCache()
-{
-    QSettings operationSettings(serviceBackCacheDir + "udsOperationSettings.ini", QSettings::IniFormat);
-
-    operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));
-    operationSettings.setValue("serviceTest/cycleNumber", cycleNumberEdit->text().toInt());
-    operationSettings.setValue("serviceTest/serviceTestResultCheckBox", serviceTestResultCheckBox->checkState());
-    operationSettings.setValue("serviceTest/UDSDescolumnCheckBox", UDSDescolumnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/UDSResponseParseCheckBox", UDSResponseParseCheckBox->checkState());
-    operationSettings.setValue("serviceTest/TestProjectNameEdit", TestProjectNameEdit->currentText());
-    operationSettings.setValue("serviceTest/SendBtnCheckBox", SendBtnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/ConfigBtnCheckBox", ConfigBtnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/UpBtnCheckBox", UpBtnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/DownBtnCheckBox", DownBtnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/DelBtnCheckBox", DelBtnCheckBox->checkState());
-    operationSettings.setValue("serviceTest/doipDiagCheckBox", doipDiagCheckBox->checkState());
-    operationSettings.setValue("serviceTest/canDiagCheckBox", canDiagCheckBox->checkState());
-    operationSettings.setValue("serviceTest/canRequestAddr", canRequestAddr->text());
-    operationSettings.setValue("serviceTest/canResponseFuncAddr", canResponseFuncAddr->text());
-    operationSettings.setValue("serviceTest/canResponsePhysAddr", canResponsePhysAddr->text());
-    operationSettings.setValue("serviceTest/doipResponseFuncAddr", doipResponseFuncAddr->text());
-    operationSettings.setValue("serviceTest/doipResponsePhysAddr", doipResponsePhysAddr->text());
-    operationSettings.setValue("serviceTest/cycle3eEdit", cycle3eEdit->text());
-    operationSettings.setValue("serviceTest/taAdress3eEdit", taAdress3eEdit->text());
-    operationSettings.setValue("serviceTest/saAdress3eEdit", saAdress3eEdit->text());
-    operationSettings.setValue("serviceTest/highPerformanceCheckBox", highPerformanceCheckBox->checkState());
-    operationSettings.sync();
+    saveCurrServiceSet(serviceBackCacheDir + "/serviceSetCache.json");
 }
 
 void UDS::canResponseHandler(QString name, int state, QByteArray response)

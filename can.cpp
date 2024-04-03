@@ -48,12 +48,14 @@ CAN::CAN(QObject *parent) : QThread(parent)
     usbCanfd200uMainLayout->addWidget(usbCanfd200uChannel1StopBtn, 2, 2);
 
     connect(openDeviceBtn, &QPushButton::clicked, this, [this, usbCanfd200uWidget, deviceIndexComBox](){
+#ifdef __HAVE_CAN_ZLG__
         dhandle = ZCAN_OpenDevice(ZCAN_USBCANFD_200U, deviceIndexComBox->currentText().toInt(), 0);
         if (INVALID_DEVICE_HANDLE == dhandle) {
                qDebug() << "打开设备失败" ;
                return ;
         }
         usbCanfd200uWidget->show();
+#endif /* #ifdef __HAVE_CAN_ZLG__ */
     });
 
     connect(usbCanfd200uChannel0StartBtn, &QPushButton::clicked, this, [this](){
@@ -69,7 +71,9 @@ CAN::CAN(QObject *parent) : QThread(parent)
     });
 
     connect(usbCanfd200uChannel0StopBtn, &QPushButton::clicked, this, [this](){
+#ifdef __HAVE_CAN_ZLG__
         QString channelName = deviceTypeComBox->currentText() + QString("通道%1").arg(0);
+
         if (channelMap.contains(channelName)) {
             ZCAN_ResetCAN(channelMap[channelName]);
             channelMap.remove(channelName);
@@ -79,10 +83,13 @@ CAN::CAN(QObject *parent) : QThread(parent)
         usbCanfd200uChannel0StartBtn->setEnabled(true);
         usbCanfd200uChannel0StopBtn->setEnabled(false);
         canchannelStartWidget->hide();
+#endif /* __HAVE_CAN_ZLG__ */
     });
 
     connect(usbCanfd200uChannel1StopBtn, &QPushButton::clicked, this, [this](){
+#ifdef __HAVE_CAN_ZLG__
         QString channelName = deviceTypeComBox->currentText() + QString("通道%1").arg(1);
+
         if (channelMap.contains(channelName)) {
             ZCAN_ResetCAN(channelMap[channelName]);
             channelMap.remove(channelName);
@@ -92,9 +99,11 @@ CAN::CAN(QObject *parent) : QThread(parent)
         usbCanfd200uChannel1StartBtn->setEnabled(true);
         usbCanfd200uChannel1StopBtn->setEnabled(false);
         canchannelStartWidget->hide();
+#endif /* __HAVE_CAN_ZLG__ */
     });
 
     connect(usbCanfd200uCloseBtn, &QPushButton::clicked, this, [this, usbCanfd200uWidget](){
+#ifdef __HAVE_CAN_ZLG__
         QString channelName = deviceTypeComBox->currentText() + QString("通道%1").arg(0);
         if (channelMap.contains(channelName)) {
             ZCAN_ResetCAN(channelMap[channelName]);
@@ -114,23 +123,10 @@ CAN::CAN(QObject *parent) : QThread(parent)
         ZCAN_CloseDevice(dhandle);
         dhandle = INVALID_DEVICE_HANDLE;
         usbCanfd200uWidget->hide();
+#endif /* __HAVE_CAN_ZLG__ */
     });
 
     canchannelStartWidget = startWidget();
-
-    diagTimer = new QTimer();
-    connect(diagTimer, &QTimer::timeout, [this](){
-        diagTimer->stop();
-        if (channelActive) {
-            if (requestHandler.supression) {
-                emit udsResponse(canchannelComBox->currentText(), normalFinish, responseHandler.responseFram);
-            } else {
-                emit udsResponse(canchannelComBox->currentText(), TimeoutFinish, responseHandler.responseFram);
-            }
-            channelActive = false;
-            canchannelComBox->setEnabled(true);
-        }
-    });
 }
 
 QWidget *CAN::startWidget()
@@ -209,6 +205,7 @@ QWidget *CAN::startWidget()
     mainLayout->addWidget(cancelBtn, 8, 1);
 
     connect(confirmBtn, &QPushButton::clicked, this, [this](){
+#ifdef __HAVE_CAN_ZLG__
         if (dhandle == INVALID_DEVICE_HANDLE) {
             return ;
         }
@@ -254,6 +251,7 @@ QWidget *CAN::startWidget()
             usbCanfd200uChannel1StopBtn->setEnabled(true);
         }
         this->start();
+ #endif /* __HAVE_CAN_ZLG__ */
     });
 
     connect(cancelBtn, &QPushButton::clicked, this, [this](){
@@ -284,6 +282,7 @@ QWidget *CAN::deviceManageWidget()
 
     return mainWidget;
 }
+#ifdef __HAVE_CAN_ZLG__
 #define TMP_BUFFER_LEN 1000
 void CAN::AddData(const ZCAN_Receive_Data* data, UINT len)
 {
@@ -321,14 +320,15 @@ void CAN::AddData(const ZCAN_ReceiveFD_Data* data, UINT len)
         //AddData(CString(item));
     }
 }
-
+#endif /* __HAVE_CAN_ZLG__ */
 void CAN::run()
 {
+#ifdef __HAVE_CAN_ZLG__
     while (dhandle != INVALID_DEVICE_HANDLE) {
         ZCAN_Receive_Data can_data[100];
         ZCAN_ReceiveFD_Data canfd_data[100];
         UINT len;
-
+        usleep(1);
         if ((len = ZCAN_GetReceiveNum(chHandle, TYPE_CAN))) {
             len = ZCAN_Receive(chHandle, can_data, 100, 50);
             if (channelActive) {
@@ -373,6 +373,7 @@ void CAN::run()
                 }
             }
         }
+
         if (requestHandler.firstFram.size() > 0) {
             ZCAN_Transmit_Data can_data;
             memset(&can_data, 0, sizeof(can_data));
@@ -386,10 +387,12 @@ void CAN::run()
             requestHandler.firstFram.clear();
         }
     }
+#endif /* __HAVE_CAN_ZLG__ */
 }
 
 bool CAN::sendRequest(const char *buf, quint32 len, quint32 sa, quint32 ta, bool supression, quint16 timeout)
 {
+#ifdef __HAVE_CAN_ZLG__
     if (channelActive) {
         return false;
     }
@@ -409,9 +412,7 @@ bool CAN::sendRequest(const char *buf, quint32 len, quint32 sa, quint32 ta, bool
     responseHandler.responseFram.clear();
     responseHandler.expectLen = 0;
 
-    diagTimer->setInterval(timeout);
-    diagTimer->start();
-
+    this->activeSid = buf[0];
     if (len >= 8) {
         quint8 firstFrame0byte = 0;
         quint8 firstFrame1byte = len % 0xff;
@@ -456,12 +457,13 @@ bool CAN::sendRequest(const char *buf, quint32 len, quint32 sa, quint32 ta, bool
         qDebug() << "short frame:" << frame.toHex(' ');
         requestHandler.firstFram = frame;
     }
-
+#endif /* __HAVE_CAN_ZLG__ */
     return true;
 }
 
 bool CAN::sendFrames(int frames, quint16 delay)
 {
+#ifdef __HAVE_CAN_ZLG__
     if (requestHandler.frams.isEmpty()) {
         return false;
     }
@@ -492,12 +494,13 @@ bool CAN::sendFrames(int frames, quint16 delay)
 
     qDebug() <<  "frams ZCAN_Transmit >> " << ZCAN_Transmit(chHandle, pData, count);
     delete[] pData;
-
+#endif /* __HAVE_CAN_ZLG__ */
     return true;
 }
 
 bool CAN::responseHandle(unsigned char *buf, quint32 len)
 {
+#ifdef __HAVE_CAN_ZLG__
     if ((buf[0] & 0xf0) == 0x30) {
         sendFrames(buf[1] == 0 ? requestHandler.frams.size() : buf[1], buf[2]);
     }
@@ -520,30 +523,6 @@ bool CAN::responseHandle(unsigned char *buf, quint32 len)
             qDebug() << "response finish:" << responseHandler.responseFram.toHex(' ');
             responseHandler.responseFram.resize(responseHandler.expectLen);
             qDebug() << "response finish:" << responseHandler.responseFram.toHex(' ');
-
-            if (responseHandler.responseFram.size() >= 1) {
-                if ((quint8)(this->activeSid + 0x40) != (quint8)responseHandler.responseFram.at(0) &&
-                    (quint8)responseHandler.responseFram.at(0) != (quint8)0x7f) {
-                    /* 正响应SID与请求SID不一致不处理 */
-                    qDebug() << "预期响应RSID:" << (quint8)(this->activeSid + 0x40) << "实际响应RSID" << (quint8)responseHandler.responseFram.at(0);
-                    return true;
-                }
-            }
-            if (responseHandler.responseFram.size() == 3) {
-                if ((quint8)responseHandler.responseFram.at(0) == (quint8)0x7f && \
-                    (quint8)responseHandler.responseFram.at(1) != (quint8)this->activeSid) {
-                    /* 负响应SID与请求SID不一致不处理 */
-                    qDebug() << "负响应SID与请求SID不一致不处理";
-                    return true;
-                }
-
-                if ((quint8)responseHandler.responseFram.at(0) == (quint8)0x7f &&\
-                    (quint8)responseHandler.responseFram.at(2) == (quint8)0x78) {
-                    /* 负响应错误码78表示服务端还未处理完需等待服务端处理完 */
-                    qDebug() << "负响应错误码78表示服务端还未处理完需等待服务端处理完";
-                    return true;
-                }
-            }
             emit udsResponse(canchannelComBox->currentText(), normalFinish, responseHandler.responseFram);
             canchannelComBox->setEnabled(true);
         }
@@ -555,33 +534,10 @@ bool CAN::responseHandle(unsigned char *buf, quint32 len)
         qDebug() << "response finish:" << responseHandler.responseFram.toHex(' ');
         responseHandler.responseFram.resize(responseHandler.expectLen);
         qDebug() << "response finish:" << responseHandler.responseFram.toHex(' ');
-        if (responseHandler.responseFram.size() >= 1) {
-            if ((quint8)(this->activeSid + 0x40) != (quint8)responseHandler.responseFram.at(0) &&
-                (quint8)responseHandler.responseFram.at(0) != (quint8)0x7f) {
-                /* 正响应SID与请求SID不一致不处理 */
-                qDebug() << "预期响应RSID:" << (quint8)(this->activeSid + 0x40) << "实际响应RSID" << (quint8)responseHandler.responseFram.at(0);
-                return true;
-            }
-        }
-        if (responseHandler.responseFram.size() == 3) {
-            if ((quint8)responseHandler.responseFram.at(0) == (quint8)0x7f && \
-                (quint8)responseHandler.responseFram.at(1) != (quint8)this->activeSid) {
-                /* 负响应SID与请求SID不一致不处理 */
-                qDebug() << "负响应SID与请求SID不一致不处理";
-                return true;
-            }
-
-            if ((quint8)responseHandler.responseFram.at(0) == (quint8)0x7f &&\
-                (quint8)responseHandler.responseFram.at(2) == (quint8)0x78) {
-                /* 负响应错误码78表示服务端还未处理完需等待服务端处理完 */
-                qDebug() << "负响应错误码78表示服务端还未处理完需等待服务端处理完";
-                return true;
-            }
-        }
         emit udsResponse(canchannelComBox->currentText(), normalFinish, responseHandler.responseFram);
         canchannelComBox->setEnabled(true);
     }
-
+#endif /* __HAVE_CAN_ZLG__ */
     return true;
 }
 

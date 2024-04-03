@@ -3,7 +3,7 @@
 
 #include <QThread>
 
-#define SOFT_VERSION "3.1.7"
+#define SOFT_VERSION "3.1.8"
 
 class SoftUpdate : public QThread
 {

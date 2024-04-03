@@ -163,18 +163,6 @@ QWidget *DoipClient::DoipWidget()
     doipProtocolView->setModel(doipProtocolModel);
 
     doipProtocolView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(0, 70);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(1, 35);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(2, 35);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(3, 45);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(4, 80);
-    // doipProtocolView->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
-    // doipProtocolView->setColumnWidth(6, 60);
     doipProtocolView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     doipProtocolView->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     doipProtocolView->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -270,17 +258,12 @@ QWidget *DoipClient::DoipWidget()
     configLayout->addWidget(doipVerComBox, 3, 1);
     doipVerComBox->setEditable(true);
     doipVerComBox->lineEdit()->setText("2");
-    doipVerComBox->lineEdit()->setValidator(new QRegExpValidator(QRegExp("^[0-9]{2}$"), this));
+    doipVerComBox->lineEdit()->setValidator(new QRegExpValidator(QRegExp("^[0-9a-fA-F]{2}$"), this));
     doipVerComBox->addItem("2");
     connect(doipVerComBox->lineEdit(), &QLineEdit::textChanged, this, \
-            [this, doipProtocolVerItem, ndoipProtocolVerItem](const QString &text){
-        if (text.size() > 1) {
-            doipVerComBox->lineEdit()->setText(text.mid(text.size() - 1, text.size()));
-        }
-        else {
-            doipProtocolVerItem->setText(QByteArray(1, text.toUInt()).toHex());
-            ndoipProtocolVerItem->setText(QByteArray(1, ~text.toUInt()).toHex());
-        }
+            [doipProtocolVerItem, ndoipProtocolVerItem](const QString &text){
+            doipProtocolVerItem->setText(text);
+            ndoipProtocolVerItem->setText(QByteArray(1, ~(text.toUInt(nullptr, 16))).toHex());
     });
 
     configLayout->addWidget(new QLabel("服务端IP:"), 4, 0);
@@ -388,6 +371,7 @@ QWidget *DoipClient::DoipWidget()
             sendDoipBtn->setEnabled(true);
             destroyDoipClient->setEnabled(true);
             createDoipClient->setEnabled(false);
+            writeConfigHistoryCache();
         }
     });
 
@@ -792,42 +776,186 @@ QWidget *DoipClient::DoipWidget()
 
 void DoipClient::backupCacheInit()
 {
-    QSettings operationSettings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
-    operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));
+    readConfigHistoryCache();
 
-    doipVerComBox->setCurrentText(operationSettings.value("doipClient/doipVerComBox").toString());
-    srvAddrComBox->setCurrentText(operationSettings.value("doipClient/srvAddrComBox").toString());
-    srvPortComBox->setCurrentText(operationSettings.value("doipClient/srvPortComBox").toString());
-    vinComBox->setCurrentText(operationSettings.value("doipClient/vinComBox").toString());
-    EIDComBox->setCurrentText(operationSettings.value("doipClient/EIDComBox").toString());
-    phyAddrComBox->setCurrentText(operationSettings.value("doipClient/phyAddrComBox").toString());
-    funcAddrComBox->setCurrentText(operationSettings.value("doipClient/funcAddrComBox").toString());
-    saAddrComBox->setCurrentText(operationSettings.value("doipClient/saAddrComBox").toString());
-    clientAddrComBox->setCurrentText(operationSettings.value("doipClient/clientAddrComBox").toString());
-    clientPortComBox->setCurrentText(operationSettings.value("doipClient/clientPortComBox").toString());
-    recvBuffLineEdit->setText(operationSettings.value("doipClient/recvBuffLineEdit").toString());
-    sendBuffLineEdit->setText(operationSettings.value("doipClient/sendBuffLineEdit").toString());
+    QSettings settings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
+
+    doipVerComBox->setCurrentText(settings.value("doipClient/doipVerComBox").toString());
+    srvAddrComBox->setCurrentText(settings.value("doipClient/srvAddrComBox").toString());
+    srvPortComBox->setCurrentText(settings.value("doipClient/srvPortComBox").toString());
+    vinComBox->setCurrentText(settings.value("doipClient/vinComBox").toString());
+    EIDComBox->setCurrentText(settings.value("doipClient/EIDComBox").toString());
+    phyAddrComBox->setCurrentText(settings.value("doipClient/phyAddrComBox").toString());
+    funcAddrComBox->setCurrentText(settings.value("doipClient/funcAddrComBox").toString());
+    saAddrComBox->setCurrentText(settings.value("doipClient/saAddrComBox").toString());
+    clientAddrComBox->setCurrentText(settings.value("doipClient/clientAddrComBox").toString());
+    clientPortComBox->setCurrentText(settings.value("doipClient/clientPortComBox").toString());
+    recvBuffLineEdit->setText(settings.value("doipClient/recvBuffLineEdit").toString());
+    sendBuffLineEdit->setText(settings.value("doipClient/sendBuffLineEdit").toString());
 }
 
 void DoipClient::operationCache()
 {
-    QSettings operationSettings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
-    operationSettings.setIniCodec(QTextCodec::codecForName("utf-8"));
+    QSettings settings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
 
-    operationSettings.setValue("doipClient/doipVerComBox", doipVerComBox->currentText());
-    operationSettings.setValue("doipClient/srvAddrComBox", srvAddrComBox->currentText());
-    operationSettings.setValue("doipClient/srvPortComBox", srvPortComBox->currentText());
-    operationSettings.setValue("doipClient/vinComBox", vinComBox->currentText());
-    operationSettings.setValue("doipClient/EIDComBox", EIDComBox->currentText());
-    operationSettings.setValue("doipClient/phyAddrComBox", phyAddrComBox->currentText());
-    operationSettings.setValue("doipClient/funcAddrComBox", funcAddrComBox->currentText());
-    operationSettings.setValue("doipClient/saAddrComBox", saAddrComBox->currentText());
-    operationSettings.setValue("doipClient/clientAddrComBox", clientAddrComBox->currentText());
-    operationSettings.setValue("doipClient/clientPortComBox", clientPortComBox->currentText());
-    operationSettings.setValue("doipClient/recvBuffLineEdit", recvBuffLineEdit->text());
-    operationSettings.setValue("doipClient/sendBuffLineEdit", sendBuffLineEdit->text());
+    settings.setValue("doipClient/doipVerComBox", doipVerComBox->currentText());
+    settings.setValue("doipClient/srvAddrComBox", srvAddrComBox->currentText());
+    settings.setValue("doipClient/srvPortComBox", srvPortComBox->currentText());
+    settings.setValue("doipClient/vinComBox", vinComBox->currentText());
+    settings.setValue("doipClient/EIDComBox", EIDComBox->currentText());
+    settings.setValue("doipClient/phyAddrComBox", phyAddrComBox->currentText());
+    settings.setValue("doipClient/funcAddrComBox", funcAddrComBox->currentText());
+    settings.setValue("doipClient/saAddrComBox", saAddrComBox->currentText());
+    settings.setValue("doipClient/clientAddrComBox", clientAddrComBox->currentText());
+    settings.setValue("doipClient/clientPortComBox", clientPortComBox->currentText());
+    settings.setValue("doipClient/recvBuffLineEdit", recvBuffLineEdit->text());
+    settings.setValue("doipClient/sendBuffLineEdit", sendBuffLineEdit->text());
 
-    operationSettings.sync();
+    settings.sync();
+}
+
+void DoipClient::writeConfigHistoryCache()
+{
+    QStringList vstrs;
+    QString stritem;
+    QSettings settings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
+
+    vstrs = settings.value("doipClient/doipVerComBoxHistory").toStringList();
+    stritem = doipVerComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        doipVerComBox->clear();
+        doipVerComBox->addItems(vstrs);
+        doipVerComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/doipVerComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/srvAddrComBoxHistory").toStringList();
+    stritem = srvAddrComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        srvAddrComBox->clear();
+        srvAddrComBox->addItems(vstrs);
+        srvAddrComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/srvAddrComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/srvPortComBoxHistory").toStringList();
+    stritem = srvPortComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        srvPortComBox->clear();
+        srvPortComBox->addItems(vstrs);
+        srvPortComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/srvPortComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/vinComBoxHistory").toStringList();
+    stritem = vinComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        vinComBox->clear();
+        vinComBox->addItems(vstrs);
+        vinComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/vinComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/EIDComBoxHistory").toStringList();
+    stritem = EIDComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        EIDComBox->clear();
+        EIDComBox->addItems(vstrs);
+        EIDComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/EIDComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/phyAddrComBoxHistory").toStringList();
+    stritem = phyAddrComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        phyAddrComBox->clear();
+        phyAddrComBox->addItems(vstrs);
+        phyAddrComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/phyAddrComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/funcAddrComBoxHistory").toStringList();
+    stritem = funcAddrComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        funcAddrComBox->clear();
+        funcAddrComBox->addItems(vstrs);
+        funcAddrComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/funcAddrComBoxHistory", vstrs);
+    }
+    vstrs = settings.value("doipClient/saAddrComBoxHistory").toStringList();
+    stritem = saAddrComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        vstrs.append(stritem);
+        saAddrComBox->clear();
+        saAddrComBox->addItems(vstrs);
+        saAddrComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/saAddrComBoxHistory", vstrs);
+    }
+
+    vstrs = settings.value("doipClient/clientPortComBoxHistory").toStringList();
+    stritem = clientPortComBox->currentText();
+    if (stritem.size() > 0 && !vstrs.contains(stritem)) {
+        if (vstrs.size() > 9) vstrs.removeAt(0);
+        clientPortComBox->clear();
+        clientPortComBox->addItems(vstrs);
+        clientPortComBox->setCurrentText(stritem);
+        settings.setValue("doipClient/clientPortComBoxHistory", vstrs);
+    }
+}
+
+void DoipClient::readConfigHistoryCache()
+{
+    QStringList vstrs;
+    QSettings settings(serviceBackCacheDir + "doipOperationSettings.ini", QSettings::IniFormat);
+    settings.setIniCodec(QTextCodec::codecForName("utf-8"));
+
+    vstrs = settings.value("doipClient/doipVerComBoxHistory").toStringList();
+    doipVerComBox->clear();
+    doipVerComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/srvAddrComBoxHistory").toStringList();
+    srvAddrComBox->clear();
+    srvAddrComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/srvPortComBoxHistory").toStringList();
+    srvPortComBox->clear();
+    srvPortComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/vinComBoxHistory").toStringList();
+    vinComBox->clear();
+    vinComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/EIDComBoxHistory").toStringList();
+    EIDComBox->clear();
+    EIDComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/phyAddrComBoxHistory").toStringList();
+    phyAddrComBox->clear();
+    phyAddrComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/funcAddrComBoxHistory").toStringList();
+    funcAddrComBox->clear();
+    funcAddrComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/saAddrComBoxHistory").toStringList();
+    saAddrComBox->clear();
+    saAddrComBox->addItems(vstrs);
+
+    vstrs = settings.value("doipClient/clientPortComBoxHistory").toStringList();
+    clientPortComBox->clear();
+    clientPortComBox->addItems(vstrs);
 }
 
 bool DoipClient::DoipHeaderEncode(frameStream_t &stream, DoipHeader_t &header)
@@ -1108,18 +1236,7 @@ DoipClientConnect::DoipClientConnect(QObject *parent)
     this->slotIsConnect = false;
     TcpSocket = new QTcpSocket(this);
     clientIsActive = false;
-    diagMsgTimer = new QTimer(this);
     activeTimer = new QTimer(this);
-    connect(diagMsgTimer, &QTimer::timeout, this, [this] {
-        QByteArray response;
-
-        if (this->isSupression) {
-            emit diagnosisFinish(this, normalFinish, response);
-        } else {
-            emit diagnosisFinish(this, TimeoutFinish, response);
-        }
-        diagMsgTimer->stop();
-    });
 }
 
 DoipClientConnect::DoipClientConnect(uint32_t recvlen, uint32_t sendlen)
@@ -1147,18 +1264,7 @@ DoipClientConnect::DoipClientConnect(uint32_t recvlen, uint32_t sendlen)
     this->slotIsConnect = false;
     TcpSocket = new QTcpSocket(this);
     clientIsActive = false;
-    diagMsgTimer = new QTimer(this);
     activeTimer = new QTimer(this);
-    connect(diagMsgTimer, &QTimer::timeout, this, [this] {
-        QByteArray response;
-
-        if (this->isSupression) {
-            emit diagnosisFinish(this, normalFinish, response);
-        } else {
-            emit diagnosisFinish(this, TimeoutFinish, response);
-        }
-        diagMsgTimer->stop();
-    });
 }
 
 DoipClientConnect::~DoipClientConnect()
@@ -1307,7 +1413,6 @@ bool DoipClientConnect::routeActiveRequest(QHostAddress addr, quint16 port, quin
                 recvMsgInfo.state = doipMessageWarning;
                 emit diagnosisFinish(this, nackFinish, response);
                 emit newDoipMessage(recvMsgInfo);
-                diagMsgTimer->stop();
             }
             else if (header.payload_type == diagnosticMessage) {
                 QByteArray response;
@@ -1322,33 +1427,9 @@ bool DoipClientConnect::routeActiveRequest(QHostAddress addr, quint16 port, quin
                     recvMsgInfo.state = doipMessageError;
                 }
                 response.append((const char *)recvStream.buff + DoipHeaderLen + 4, header.payload_length - 4);
-                if (response.size() >= 1) {
-                    if ((quint8)(this->activeSid + 0x40) != (quint8)response.at(0) &&
-                        (quint8)response.at(0) != (quint8)0x7f) {
-                        /* 正响应SID与请求SID不一致不处理 */
-                        qDebug() << "预期响应RSID:" << (quint8)(this->activeSid + 0x40) << "实际响应RSID" << (quint8)response.at(0);
-                        return ;
-                    }
-                }
-                if (response.size() == 3) {
-                    if ((quint8)response.at(0) == (quint8)0x7f && \
-                        (quint8)response.at(1) != (quint8)this->activeSid) {
-                        /* 负响应SID与请求SID不一致不处理 */
-                        qDebug() << "负响应SID与请求SID不一致不处理";
-                        return ;
-                    }
-
-                    if ((quint8)response.at(0) == (quint8)0x7f &&\
-                        (quint8)response.at(2) == (quint8)0x78) {
-                        /* 负响应错误码78表示服务端还未处理完需等待服务端处理完 */
-                        qDebug() << "负响应错误码78表示服务端还未处理完需等待服务端处理完";
-                        return ;
-                    }
-                }
 
                 emit diagnosisFinish(this, normalFinish, response);
                 emit newDoipMessage(recvMsgInfo);
-                diagMsgTimer->stop();
             }
             else if (header.payload_type == aliveCheckRequest) {
                 doipMessage_t sendMsgInfo;
@@ -1407,20 +1488,6 @@ quint32 DoipClientConnect::diagnosisRequest(const char *buf, quint32 len, quint1
     if (!isRouteActive()) {
         /* doip未进行路由未激活 */
         return 0;
-    }
-
-    if (buf[0] == 0x3e && timeout == 0) {
-        /* 是周期发送3E，直接发送 不进行其他判断 */
-    }
-    else {
-        if (diagMsgTimer->isActive()) {
-            /* 有等待响应的服务正在进行中 */
-            return 0;
-        }
-        this->activeSid = buf[0]; /* 记录请求ID，用于判断响应是否符合预期 */
-        diagMsgTimer->setInterval(timeout); /* 设置响应超时定时器时间 */
-        diagMsgTimer->start(); /* 启动响应超时定时器 */
-        this->isSupression = supression; /* 记录是否是抑制响应 */
     }
 
     /* doip协议封装 */

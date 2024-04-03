@@ -4,101 +4,93 @@
 extern "C" {
 #endif
 
-#ifndef TRUE
-#define TRUE 1
-#endif /* TRUE */
-
-#ifndef FALSE
-#define FALSE 0
-#endif /* FALSE */
-
-static unsigned char s_tempbuf[2000];
+static unsigned char s_tempbuf[2024];
 static stream_t s_wstrm;
 
-unsigned int stream_init(stream_t *sp, streammem *Bp, unsigned int MaxLen)
+unsigned int stream_init(stream_t *sp, streammem *bp, unsigned int ml)
 {
-    if (sp == 0) return FALSE;
+    if (sp == 0) return 0;
 
-    sp->Len      = 0;
-    sp->MaxLen   = MaxLen;
-    sp->CurPtr   = Bp;
-    sp->StartPtr = Bp;
-    return TRUE;
+    sp->len      = 0;
+    sp->ml   = ml;
+    sp->cptr   = bp;
+    sp->sptr = bp;
+    return 1;
 }
 
-unsigned int stream_left_len(stream_t *Sp)
+unsigned int stream_left_len(stream_t *sp)
 {
-    if (Sp->MaxLen >= Sp->Len) {
-        return (Sp->MaxLen - Sp->Len);
+    if (sp->ml >= sp->len) {
+        return (sp->ml - sp->len);
     } else {
         return 0;
     }
 }
 
-unsigned int stream_use_len(stream_t *Sp)
+unsigned int stream_use_len(stream_t *sp)
 {
-    return (Sp->Len);
+    return (sp->len);
 }
 
-unsigned int stream_max_len(stream_t *Sp)
+unsigned int stream_max_len(stream_t *sp)
 {
-    return (Sp->MaxLen);
+    return (sp->ml);
 }
 
-streammem *stream_curr_ptr(stream_t *Sp)
+streammem *stream_curr_ptr(stream_t *sp)
 {
-    return (Sp->CurPtr);
+    return (sp->cptr);
 }
 
-streammem *stream_start_ptr(stream_t *Sp)
+streammem *stream_start_ptr(stream_t *sp)
 {
-    return (Sp->StartPtr);
+    return (sp->sptr);
 }
 
-void stream_move_ptr(stream_t *Sp, unsigned int Len)
+void stream_move_ptr(stream_t *sp, unsigned int len)
 {
-    if (Sp != 0) {
-        if ((Sp->Len + Len) <= Sp->MaxLen) {
-            Sp->Len    += Len;
-            Sp->CurPtr += Len;
+    if (sp != 0) {
+        if ((sp->len + len) <= sp->ml) {
+            sp->len    += len;
+            sp->cptr += len;
         } else {
-            Sp->Len = Sp->MaxLen;
+            sp->len = sp->ml;
         }
     }
 }
 
-void stream_back_move_ptr(stream_t *Sp, unsigned int Len)
+void stream_back_move_ptr(stream_t *sp, unsigned int len)
 {
-    if (Sp != 0) {
-        if(Sp->Len > Len){
-            Sp->Len    -= Len;
-            Sp->CurPtr -= Len;
+    if (sp != 0) {
+        if(sp->len > len){
+            sp->len    -= len;
+            sp->cptr -= len;
         }else{
-            Sp->Len     = 0;
+            sp->len     = 0;
         }
     }
 }
 
-void stream_byte_write(stream_t *Sp, unsigned char writebyte)
+void stream_byte_write(stream_t *sp, unsigned char writebyte)
 {
-    if (Sp != 0){
-        if (Sp->Len < Sp->MaxLen) {
-            *Sp->CurPtr++ = writebyte;
-            Sp->Len++;
+    if (sp != 0){
+        if (sp->len < sp->ml) {
+            *sp->cptr++ = writebyte;
+            sp->len++;
         }
     }
 }
 
-void stream_2byte_write(stream_t *Sp, unsigned short writeword)
+void stream_2byte_write(stream_t *sp, unsigned short writeword)
 {
-    stream_byte_write(Sp, (writeword >> 8) & 0xff);
-    stream_byte_write(Sp, writeword & 0xff);
+    stream_byte_write(sp, (writeword >> 8) & 0xff);
+    stream_byte_write(sp, writeword & 0xff);
 }
 
-void stream_le_2byte_write(stream_t *Sp, unsigned short writeword)
+void stream_le_2byte_write(stream_t *sp, unsigned short writeword)
 {
-    stream_byte_write(Sp, writeword & 0xff);     
-    stream_byte_write(Sp, (writeword >> 8) & 0xff);
+    stream_byte_write(sp, writeword & 0xff);
+    stream_byte_write(sp, (writeword >> 8) & 0xff);
 }
 
 void stream_4byte_write(stream_t *sp, unsigned int writelong)
@@ -110,7 +102,7 @@ void stream_4byte_write(stream_t *sp, unsigned int writelong)
 void stream_le_4byte_write(stream_t *sp, unsigned int writelong)
 {
     stream_le_2byte_write(sp, writelong >> 16 & 0xffff);
-    stream_le_2byte_write(sp, writelong & 0xffff);    //高16位
+    stream_le_2byte_write(sp, writelong & 0xffff);    //??16λ
 }
 
 void stream_8byte_write(stream_t *sp, unsigned long long writelonglong)
@@ -122,113 +114,97 @@ void stream_8byte_write(stream_t *sp, unsigned long long writelonglong)
 void stream_le_8byte_write(stream_t *sp, unsigned long long writelonglong)
 {
     stream_le_2byte_write(sp, writelonglong & 0xffffffff);
-    stream_le_2byte_write(sp, (writelonglong >> 32) & 0xffffffff);    //高16位
+    stream_le_2byte_write(sp, (writelonglong >> 32) & 0xffffffff);    //??16λ
 }
 
-void YX_WriteLF_Strm(stream_t *Sp)
-{
-    stream_byte_write(Sp, '\r');
-    stream_byte_write(Sp, '\n');
-}
-
-void YX_WriteCR_Strm(stream_t *Sp)
-{
-    stream_byte_write(Sp, '\r');
-}
-
-void stream_str_write(stream_t *Sp, char *Ptr)
+void stream_str_write(stream_t *sp, char *Ptr)
 {
     while(*Ptr)
     {
-        stream_byte_write(Sp, *Ptr++);
+        stream_byte_write(sp, *Ptr++);
     }
 }
 
-void stream_nbyte_write(stream_t *Sp, unsigned char *Ptr, unsigned int Len)
+void stream_nbyte_write(stream_t *sp, unsigned char *Ptr, unsigned int len)
 {
-    while(Len--)
+    while(len--)
     {
-        stream_byte_write(Sp, *Ptr++);
+        stream_byte_write(sp, *Ptr++);
     }
 }
 
-unsigned char stream_byte_read(stream_t *Sp)
+unsigned char stream_byte_read(stream_t *sp)
 {
-    if (Sp->Len < Sp->MaxLen) {
-        Sp->Len++;
-        return (*Sp->CurPtr++);
+    if (sp->len < sp->ml) {
+        sp->len++;
+        return (*sp->cptr++);
     } else {
         return 0;
     }
 }
 
-unsigned short stream_2byte_read(stream_t *Sp)
+unsigned short stream_2byte_read(stream_t *sp)
 {
-    return stream_byte_read(Sp) << 8 | stream_byte_read(Sp);
+    return stream_byte_read(sp) << 8 | stream_byte_read(sp);
 }
 
-unsigned short stream_le_2byte_read(stream_t *Sp)
+unsigned short stream_le_2byte_read(stream_t *sp)
 {
-    return stream_byte_read(Sp) | stream_byte_read(Sp) << 8;
+    return stream_byte_read(sp) | stream_byte_read(sp) << 8;
 }
 
-unsigned int stream_4byte_read(stream_t *Sp)
+unsigned int stream_4byte_read(stream_t *sp)
 {
     unsigned int temp;
-    
-    temp = (stream_2byte_read(Sp) << 16);
-    temp += stream_2byte_read(Sp);
-    
+
+    temp = (stream_2byte_read(sp) << 16);
+    temp += stream_2byte_read(sp);
+
     return temp;
 }
 
-unsigned long long stream_8byte_read(stream_t *Sp)
+unsigned long long stream_8byte_read(stream_t *sp)
 {
     unsigned long long value;
 
-    value = stream_4byte_read(Sp);
+    value = stream_4byte_read(sp);
     value <<= 32;
-    value |= stream_4byte_read(Sp);
+    value |= stream_4byte_read(sp);
 
     return value;
 }
 
-unsigned int stream_le_4byte_read(stream_t *Sp)
+unsigned int stream_le_4byte_read(stream_t *sp)
 {
     unsigned int temp;
-    
-    temp = stream_le_2byte_read(Sp);
-    temp += (stream_le_2byte_read(Sp) << 16);
-    
+
+    temp = stream_le_2byte_read(sp);
+    temp += (stream_le_2byte_read(sp) << 16);
+
     return temp;
 }
 
-unsigned long stream_le_8byte_read(stream_t *Sp)
+unsigned long stream_le_8byte_read(stream_t *sp)
 {
     unsigned long long value;
     unsigned int low, high;
 
-    low = stream_le_4byte_read(Sp);
-    high = stream_le_4byte_read(Sp);
+    low = stream_le_4byte_read(sp);
+    high = stream_le_4byte_read(sp);
     value = high;
     value <<= 32;
 
     return (value | low);
 }
 
-void stream_nbyte_read(stream_t *Sp, unsigned char *Ptr, unsigned int Len)
+void stream_nbyte_read(stream_t *sp, unsigned char *Ptr, unsigned int len)
 {
-    while(Len--)
+    while(len--)
     {
-        *Ptr++ = stream_byte_read(Sp);
+        *Ptr++ = stream_byte_read(sp);
     }
 }
 
-stream_t *stream_GetBufferStream(void)
-{
-    stream_init(&s_wstrm, s_tempbuf, sizeof(s_tempbuf));
-    return &s_wstrm;
-}
 #ifdef __cplusplus
 }
 #endif

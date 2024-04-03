@@ -22,6 +22,7 @@
 #include <QSettings>
 #include <QTextCodec>
 #include "messageview.h"
+#include "diagpcap.h"
 
 #define DoipHeaderLen (8)
 
@@ -115,7 +116,6 @@ private:
     quint8 oem[4];
     QString vin;
     QTcpSocket *TcpSocket;
-    QTimer *diagMsgTimer;
     QTimer *activeTimer;
     QTime sendDiagTime;
     bool clientIsActive;
@@ -140,6 +140,8 @@ public:
     QWidget *DoipWidget();
     void backupCacheInit();
     void operationCache();
+    void writeConfigHistoryCache();
+    void readConfigHistoryCache();
     static bool DoipHeaderEncode(frameStream_t &stream, DoipHeader_t &header);
     static bool DoipHeaderDecode(frameStream_t &stream, DoipHeader_t &header);
     static bool DoipPayloadEncode(frameStream_t &stream, const char *payload, uint32_t payload_length);
